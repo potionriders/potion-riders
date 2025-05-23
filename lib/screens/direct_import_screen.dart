@@ -256,8 +256,9 @@ class _DirectImportScreenState extends State<DirectImportScreen> {
               print('ID non trovati per: $pozioneName o $ingredienteName');
             } else {
               // Crea il sottobicchiere
-              await _dbService.createCoaster(recipeId, ingredientId);
+              String coasterId = await _dbService.createCoaster(recipeId, ingredientId);
               _successCount++;
+              print('Sottobicchiere creato con ID: $coasterId');
             }
           } else {
             _failCount++;

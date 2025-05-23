@@ -261,27 +261,35 @@ class _CoasterSelectionScreenState extends State<CoasterSelectionScreen> {
     setState(() => _isSelecting = true);
 
     try {
-      // Invece di usare useCoaster, che può causare problemi di permessi,
-      // assegnamo direttamente la pozione o l'ingrediente all'utente
-      if (type == 'recipe' && _recipe != null) {
-        await _dbService.assignRecipe(uid, _recipe!.id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hai scelto di usare il sottobicchiere come pozione!')),
-        );
-      } else if (type == 'ingredient' && _ingredient != null) {
-        await _dbService.assignIngredient(uid, _ingredient!.id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hai scelto di usare il sottobicchiere come ingrediente!')),
-        );
-      } else {
-        throw Exception('Nessun elemento selezionabile disponibile');
+      // Prima reclama il sottobicchiere se non è già stato fatto
+      final coaster = await _dbService.getCoaster(widget.coasterId);
+      if (coaster != null && coaster.claimedByUserId == null) {
+        await _dbService.claimCoaster(widget.coasterId, uid);
       }
 
-      // Ritorna alla home
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // Poi usa il sottobicchiere per il tipo selezionato
+      final success = await _dbService.useCoaster(widget.coasterId, uid, type);
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(type == 'recipe'
+                ? 'Hai scelto di usare il sottobicchiere come pozione!'
+                : 'Hai scelto di usare il sottobicchiere come ingrediente!'),
+          ),
+        );
+
+        // Ritorna alla home
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      } else {
+        throw Exception('Impossibile selezionare l\'elemento');
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore: $e')),
+        SnackBar(
+          content: Text('Errore: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       setState(() => _isSelecting = false);

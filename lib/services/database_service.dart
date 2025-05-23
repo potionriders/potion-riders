@@ -6,8 +6,7 @@ import 'package:potion_riders/models/user_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/models/ingredient_model.dart';
 import 'package:potion_riders/models/room_model.dart';
-
-import '../models/coaster_model.dart';
+import 'package:potion_riders/models/coaster_model.dart';
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -52,7 +51,7 @@ class DatabaseService {
       final QuerySnapshot result = await _db
           .collection('users')
           .where('nickname', isEqualTo: nickname)
-          .get(); // Rimuovi limit(1) e orderBy
+          .get();
 
       return result.docs.isEmpty;
     } catch (e) {
@@ -170,7 +169,7 @@ class DatabaseService {
         if (recipes.docs.isNotEmpty) {
           final int randomIndex = random.nextInt(recipes.docs.length);
           final String recipeId = recipes.docs[randomIndex].id;
-          assignRecipe;
+          await assignRecipe;
         }
       } else {
         // Otteniamo un ingrediente casuale
@@ -210,6 +209,43 @@ class DatabaseService {
     } catch (e) {
       debugPrint('Error assigning ingredient: $e');
       rethrow;
+    }
+  }
+
+  // =============================================================================
+  // COASTER MANAGEMENT
+  // =============================================================================
+
+  /// Cambia l'uso del sottobicchiere tra pozione e ingrediente
+  Future<bool> switchCoasterUsage(String userId, String coasterId, bool useAsRecipe) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
+
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+
+      // Verifica che il coaster appartenga all'utente
+      if (coaster.claimedByUserId != userId) {
+        return false;
+      }
+
+      // Aggiorna l'uso del coaster
+      String newUsage = useAsRecipe ? 'recipe' : 'ingredient';
+      await _db.collection('coasters').doc(coasterId).update({
+        'usedAs': newUsage,
+      });
+
+      // Aggiorna l'elemento assegnato all'utente
+      if (useAsRecipe) {
+        await assignRecipe(userId, coaster.recipeId);
+      } else {
+        await assignIngredient(userId, coaster.ingredientId);
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error switching coaster usage: $e');
+      return false;
     }
   }
 
@@ -337,6 +373,34 @@ class DatabaseService {
     );
   }
 
+  /// Ottiene tutte le stanze aperte
+  Stream<List<RoomModel>> getOpenRooms() {
+    return _db.collection('rooms')
+        .where('isCompleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return RoomModel.fromMap(doc.data(), doc.id);
+      }).toList();
+    });
+  }
+
+  /// Ottiene le stanze di un utente (come host o partecipante)
+  Stream<List<RoomModel>> getUserRooms(String userId) {
+    // Firestore non supporta query array-contains su oggetti complessi
+    // quindi dobbiamo filtrare manualmente
+    return _db.collection('rooms').snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
+          .where((room) =>
+      room.hostId == userId ||
+          room.participants.any((p) => p.userId == userId))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    });
+  }
+
   /// Aggiunge un partecipante a una stanza
   Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
     try {
@@ -461,70 +525,146 @@ class DatabaseService {
     });
   }
 
+  // =============================================================================
+  // COASTER MANAGEMENT
+  // =============================================================================
+
+  // Genera un ID breve e leggibile
+  String _generateShortId() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = Random();
+    return List.generate(8, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
   // Crea sottobicchiere
   Future<String> createCoaster(String recipeId, String ingredientId) async {
-    DocumentReference docRef = await _db.collection('coasters').add({
-      'recipeId': recipeId,
-      'ingredientId': ingredientId,
-      'isActive': true,
-      'claimedByUserId': null,
-      'usedAs': null,
-    });
-    return docRef.id;
+    try {
+      // Genera un ID personalizzato più breve e user-friendly
+      String shortId = _generateShortId();
+
+      // Verifica che l'ID non esista già
+      DocumentSnapshot existing = await _db.collection('coasters').doc(shortId).get();
+      int attempts = 0;
+      while (existing.exists && attempts < 10) {
+        shortId = _generateShortId();
+        existing = await _db.collection('coasters').doc(shortId).get();
+        attempts++;
+      }
+
+      if (attempts >= 10) {
+        throw Exception('Impossibile generare un ID univoco');
+      }
+
+      // Crea il documento con l'ID personalizzato
+      await _db.collection('coasters').doc(shortId).set({
+        'recipeId': recipeId,
+        'ingredientId': ingredientId,
+        'isActive': true,
+        'claimedByUserId': null,
+        'usedAs': null,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      return shortId;
+    } catch (e) {
+      debugPrint('Error creating coaster: $e');
+      rethrow;
+    }
   }
 
-// Ottieni sottobicchiere
+  // Crea sottobicchiere con ID specifico (per importazione)
+  Future<String> createCoasterWithId(String coasterId, String recipeId, String ingredientId) async {
+    try {
+      // Verifica che l'ID non esista già
+      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
+      if (existing.exists) {
+        throw Exception('Coaster con ID $coasterId già esistente');
+      }
+
+      // Crea il documento con l'ID specifico
+      await _db.collection('coasters').doc(coasterId).set({
+        'recipeId': recipeId,
+        'ingredientId': ingredientId,
+        'isActive': true,
+        'claimedByUserId': null,
+        'usedAs': null,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      return coasterId;
+    } catch (e) {
+      debugPrint('Error creating coaster with specific ID: $e');
+      rethrow;
+    }
+  }
+
+  // Ottieni sottobicchiere
   Future<CoasterModel?> getCoaster(String coasterId) async {
-    DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-    if (doc.exists) {
-      return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (doc.exists) {
+        return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting coaster: $e');
+      return null;
     }
-    return null;
   }
 
-// Reclama sottobicchiere
+  // Reclama sottobicchiere
   Future<bool> claimCoaster(String coasterId, String userId) async {
-    DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-    if (!doc.exists) return false;
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
 
-    CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
 
-    if (!coaster.isActive || coaster.claimedByUserId != null) {
-      return false; // Già reclamato o disattivato
+      if (!coaster.isActive || coaster.claimedByUserId != null) {
+        return false; // Già reclamato o disattivato
+      }
+
+      await _db.collection('coasters').doc(coasterId).update({
+        'claimedByUserId': userId,
+      });
+
+      return true;
+    } catch (e) {
+      debugPrint('Error claiming coaster: $e');
+      return false;
     }
-
-    await _db.collection('coasters').doc(coasterId).update({
-      'claimedByUserId': userId,
-    });
-
-    return true;
   }
 
-// Usa sottobicchiere (come pozione o ingrediente)
+  // Usa sottobicchiere (come pozione o ingrediente)
   Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
-    DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-    if (!doc.exists) return false;
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
 
-    CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
 
-    if (!coaster.isActive || coaster.usedAs != null || coaster.claimedByUserId != userId) {
-      return false; // Non attivo, già usato o non reclamato da questo utente
+      if (!coaster.isActive || coaster.usedAs != null || coaster.claimedByUserId != userId) {
+        return false; // Non attivo, già usato o non reclamato da questo utente
+      }
+
+      await _db.collection('coasters').doc(coasterId).update({
+        'usedAs': useAs,
+      });
+
+      if (useAs == 'recipe') {
+        await assignRecipe(userId, coaster.recipeId);
+      } else if (useAs == 'ingredient') {
+        await assignIngredient(userId, coaster.ingredientId);
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error using coaster: $e');
+      return false;
     }
-
-    await _db.collection('coasters').doc(coasterId).update({
-      'usedAs': useAs,
-    });
-
-    if (useAs == 'recipe') {
-      await assignRecipe(userId, coaster.recipeId);
-    } else if (useAs == 'ingredient') {
-      await assignIngredient(userId, coaster.ingredientId);
-    }
-
-    return true;
   }
 
-// Genera coasters in bulk per test
+  // Genera coasters in bulk per test
   Future<void> generateTestCoasters(String uid, int count) async {
     bool isAdmin = await isUserAdmin(uid);
     if (!isAdmin) {
@@ -546,7 +686,24 @@ class DatabaseService {
     WriteBatch batch = _db.batch();
 
     for (int i = 0; i < count; i++) {
-      DocumentReference coasterRef = _db.collection('coasters').doc();
+      // Genera un ID personalizzato per ogni coaster
+      String coasterId = _generateShortId();
+
+      // Verifica che non esista già
+      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
+      int attempts = 0;
+      while (existing.exists && attempts < 10) {
+        coasterId = _generateShortId();
+        existing = await _db.collection('coasters').doc(coasterId).get();
+        attempts++;
+      }
+
+      if (attempts >= 10) {
+        debugPrint('Impossibile generare ID univoco per coaster $i');
+        continue;
+      }
+
+      DocumentReference coasterRef = _db.collection('coasters').doc(coasterId);
 
       int recipeIndex = i % recipeIds.length;
       int ingredientIndex = (i + 3) % ingredientIds.length; // Offset per evitare accoppiamenti ovvi
@@ -557,6 +714,7 @@ class DatabaseService {
         'isActive': true,
         'claimedByUserId': null,
         'usedAs': null,
+        'createdAt': FieldValue.serverTimestamp(),
       });
     }
 
@@ -605,19 +763,143 @@ class DatabaseService {
   Stream<List<CoasterModel>> getCoasters() {
     return _db.collection('coasters').snapshots().map((snapshot) {
       return snapshot.docs.map((doc) {
-        return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+        return CoasterModel.fromMap(doc.data(), doc.id);
       }).toList();
     });
   }
 
-// Versione stream del metodo sopra
+  // Versione stream del metodo sopra
   Stream<CoasterModel?> getUserCoasterStream(String userId) {
-    // Crea uno stream personalizzato che emette il coaster dell'utente
-    return Stream.periodic(const Duration(seconds: 5))
-        .asyncMap((_) => getUserCoaster(userId))
-        .distinct((previous, next) =>
-    previous?.id == next?.id &&
-        previous?.usedAs == next?.usedAs);
+    return _db.collection('coasters')
+        .where('claimedByUserId', isEqualTo: userId)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) return null;
+      return CoasterModel.fromMap(
+          snapshot.docs.first.data(),
+          snapshot.docs.first.id
+      );
+    });
+  }
+
+  // =============================================================================
+  // ADMIN FUNCTIONS
+  // =============================================================================
+
+  // Popola il database con dati fake per testing
+  Future<void> populateWithFakeData(String uid) async {
+    bool isAdmin = await isUserAdmin(uid);
+    if (!isAdmin) {
+      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+    }
+
+    // Famiglie di ingredienti e pozioni
+    final List<String> families = ['Natura', 'Alchimia', 'Arcana', 'Elementale', 'Onirica'];
+
+    // Crea ingredienti fake
+    for (int i = 0; i < 60; i++) {
+      String family = families[i % families.length];
+      String id = 'ingredient_${i+1}';
+
+      await _db.collection('ingredients').doc(id).set({
+        'name': 'Ingrediente ${i+1}',
+        'description': 'Un ingrediente di tipo $family. Utile per molte pozioni.',
+        'imageUrl': '',
+        'family': family,
+      });
+    }
+
+    // Crea pozioni fake
+    for (int i = 0; i < 60; i++) {
+      String family = families[i % families.length];
+      String id = 'recipe_${i+1}';
+
+      // Ottieni 3 ingredienti random da famiglie diverse dalla famiglia della pozione
+      List<String> requiredIngredients = [];
+      List<String> availableFamilies = List.from(families);
+      availableFamilies.remove(family);
+
+      for (int j = 0; j < 3; j++) {
+        String ingredientFamily = availableFamilies[j % availableFamilies.length];
+        int baseIndex = families.indexOf(ingredientFamily) * 12;
+        requiredIngredients.add('Ingrediente ${baseIndex + (i % 12) + 1}');
+      }
+
+      await _db.collection('recipes').doc(id).set({
+        'name': 'Pozione ${i+1}',
+        'description': 'Una potente pozione di tipo $family.',
+        'requiredIngredients': requiredIngredients,
+        'imageUrl': '',
+        'family': family,
+      });
+    }
+  }
+
+  // Cancella tutti gli ingredienti e le ricette
+  Future<void> clearIngredientsAndRecipes(String uid) async {
+    bool isAdmin = await isUserAdmin(uid);
+    if (!isAdmin) {
+      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+    }
+
+    WriteBatch batch = _db.batch();
+
+    // Ottieni tutti i documenti degli ingredienti
+    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').get();
+    for (var doc in ingredientsSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    // Ottieni tutti i documenti delle ricette
+    QuerySnapshot recipesSnapshot = await _db.collection('recipes').get();
+    for (var doc in recipesSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    // Esegui il batch delete
+    await batch.commit();
+  }
+
+  // Cerca un ingrediente o ricetta tramite ID (es. ID sottobicchiere)
+  Future<Map<String, dynamic>?> findItemById(String id) async {
+    // Cerca tra le ricette
+    DocumentSnapshot recipeDoc = await _db.collection('recipes').doc(id).get();
+    if (recipeDoc.exists) {
+      Map<String, dynamic> data = recipeDoc.data() as Map<String, dynamic>;
+      return {
+        'type': 'recipe',
+        'data': RecipeModel.fromMap(data, recipeDoc.id),
+      };
+    }
+
+    // Cerca tra gli ingredienti
+    DocumentSnapshot ingredientDoc = await _db.collection('ingredients').doc(id).get();
+    if (ingredientDoc.exists) {
+      Map<String, dynamic> data = ingredientDoc.data() as Map<String, dynamic>;
+      return {
+        'type': 'ingredient',
+        'data': IngredientModel.fromMap(data, ingredientDoc.id),
+      };
+    }
+
+    return null;
+  }
+
+  // Assegna un ingrediente o una ricetta a un utente tramite ID
+  Future<bool> assignItemToUser(String userId, String itemId) async {
+    var item = await findItemById(itemId);
+    if (item == null) return false;
+
+    if (item['type'] == 'recipe') {
+      await assignRecipe(userId, itemId);
+      return true;
+    } else if (item['type'] == 'ingredient') {
+      await assignIngredient(userId, itemId);
+      return true;
+    }
+
+    return false;
   }
 
   // =============================================================================
@@ -792,122 +1074,4 @@ class DatabaseService {
       rethrow;
     }
   }
-
-  // Popola il database con dati fake per testing
-  Future<void> populateWithFakeData(String uid) async {
-
-    bool isAdmin = await isUserAdmin(uid);
-    if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
-    }
-
-    // Famiglie di ingredienti e pozioni
-    final List<String> families = ['Natura', 'Alchimia', 'Arcana', 'Elementale', 'Onirica'];
-
-    // Crea ingredienti fake
-    for (int i = 0; i < 60; i++) {
-      String family = families[i % families.length];
-      String id = 'ingredient_${i+1}';
-
-      await _db.collection('ingredients').doc(id).set({
-        'name': 'Ingrediente ${i+1}',
-        'description': 'Un ingrediente di tipo $family. Utile per molte pozioni.',
-        'imageUrl': '',
-        'family': family,
-      });
-    }
-
-    // Crea pozioni fake
-    for (int i = 0; i < 60; i++) {
-      String family = families[i % families.length];
-      String id = 'recipe_${i+1}';
-
-      // Ottieni 3 ingredienti random da famiglie diverse dalla famiglia della pozione
-      List<String> requiredIngredients = [];
-      List<String> availableFamilies = List.from(families);
-      availableFamilies.remove(family);
-
-      for (int j = 0; j < 3; j++) {
-        String ingredientFamily = availableFamilies[j % availableFamilies.length];
-        int baseIndex = families.indexOf(ingredientFamily) * 12;
-        requiredIngredients.add('Ingrediente ${baseIndex + (i % 12) + 1}');
-      }
-
-      await _db.collection('recipes').doc(id).set({
-        'name': 'Pozione ${i+1}',
-        'description': 'Una potente pozione di tipo $family.',
-        'requiredIngredients': requiredIngredients,
-        'imageUrl': '',
-        'family': family,
-      });
-    }
-  }
-
-// Cancella tutti gli ingredienti e le ricette
-  Future<void> clearIngredientsAndRecipes(String uid) async {
-
-    bool isAdmin = await isUserAdmin(uid);
-    if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
-    }
-
-    WriteBatch batch = _db.batch();
-
-    // Ottieni tutti i documenti degli ingredienti
-    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').get();
-    for (var doc in ingredientsSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-
-    // Ottieni tutti i documenti delle ricette
-    QuerySnapshot recipesSnapshot = await _db.collection('recipes').get();
-    for (var doc in recipesSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-
-    // Esegui il batch delete
-    await batch.commit();
-  }
-
-// Cerca un ingrediente o ricetta tramite ID (es. ID sottobicchiere)
-  Future<Map<String, dynamic>?> findItemById(String id) async {
-    // Cerca tra le ricette
-    DocumentSnapshot recipeDoc = await _db.collection('recipes').doc(id).get();
-    if (recipeDoc.exists) {
-      Map<String, dynamic> data = recipeDoc.data() as Map<String, dynamic>;
-      return {
-        'type': 'recipe',
-        'data': RecipeModel.fromMap(data, recipeDoc.id),
-      };
-    }
-
-    // Cerca tra gli ingredienti
-    DocumentSnapshot ingredientDoc = await _db.collection('ingredients').doc(id).get();
-    if (ingredientDoc.exists) {
-      Map<String, dynamic> data = ingredientDoc.data() as Map<String, dynamic>;
-      return {
-        'type': 'ingredient',
-        'data': IngredientModel.fromMap(data, ingredientDoc.id),
-      };
-    }
-
-    return null;
-  }
-
-// Assegna un ingrediente o una ricetta a un utente tramite ID
-  Future<bool> assignItemToUser(String userId, String itemId) async {
-    var item = await findItemById(itemId);
-    if (item == null) return false;
-
-    if (item['type'] == 'recipe') {
-      await assignRecipe(userId, itemId);
-      return true;
-    } else if (item['type'] == 'ingredient') {
-      await assignIngredient(userId, itemId);
-      return true;
-    }
-
-    return false;
-  }
-
 }

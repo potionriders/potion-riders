@@ -5,6 +5,8 @@ import 'package:potion_riders/models/ingredient_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/services/qr_service.dart';
 
+import '../models/coaster_model.dart';
+
 class QRCodeGeneratorScreen extends StatefulWidget {
   const QRCodeGeneratorScreen({super.key});
 
@@ -198,169 +200,123 @@ class _QRCodeGeneratorScreenState extends State<QRCodeGeneratorScreen> with Sing
     return Column(
       children: [
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Crea un nuovo sottobicchiere',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Seleziona una pozione e un ingrediente per creare un sottobicchiere',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 24),
+          child: StreamBuilder<List<CoasterModel>>(
+            stream: _dbService.getCoasters(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-                // Sezione selezione pozione
-                Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Seleziona una pozione',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(
+                  child: Text('Nessun sottobicchiere disponibile'),
+                );
+              }
+
+              final coasters = snapshot.data!;
+
+              return ListView.builder(
+                itemCount: coasters.length,
+                itemBuilder: (context, index) {
+                  final coaster = coasters[index];
+
+                  return FutureBuilder<Map<String, String?>>(
+                    future: _getCoasterDetails(coaster),
+                    builder: (context, detailsSnapshot) {
+                      final details = detailsSnapshot.data ?? {};
+                      final recipeName = details['recipeName'] ?? 'Caricamento...';
+                      final ingredientName = details['ingredientName'] ?? 'Caricamento...';
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: ListTile(
+                          leading: Icon(
+                            coaster.claimedByUserId != null
+                                ? Icons.lock
+                                : Icons.tab,
+                            color: coaster.claimedByUserId != null
+                                ? Colors.red
+                                : Colors.green,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        StreamBuilder<List<RecipeModel>>(
-                          stream: _dbService.getRecipes(),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-
-                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                              return const Text('Nessuna pozione disponibile');
-                            }
-
-                            return DropdownButtonFormField<String>(
-                              value: _selectedRecipeId,
-                              decoration: const InputDecoration(
-                                hintText: 'Seleziona una pozione',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: snapshot.data!.map((recipe) {
-                                return DropdownMenuItem<String>(
-                                  value: recipe.id,
-                                  child: Text(recipe.name),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedRecipeId = value;
-                                });
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Sezione selezione ingrediente
-                Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Seleziona un ingrediente',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                          title: Text('ID: ${coaster.id.substring(0, 8)}...'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Pozione: $recipeName'),
+                              Text('Ingrediente: $ingredientName'),
+                              if (coaster.claimedByUserId != null)
+                                Text(
+                                  'Già reclamato',
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        StreamBuilder<List<IngredientModel>>(
-                          stream: _dbService.getIngredients(),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
+                          trailing: Radio<String>(
+                            value: coaster.id,
+                            groupValue: _coasterId,
+                            onChanged: coaster.claimedByUserId == null
+                                ? (value) {
+                              setState(() {
+                                _coasterId = value;
+                                _generateCoasterQRCode(coaster);
+                              });
                             }
-
-                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                              return const Text('Nessun ingrediente disponibile');
-                            }
-
-                            return DropdownButtonFormField<String>(
-                              value: _selectedIngredientId,
-                              decoration: const InputDecoration(
-                                hintText: 'Seleziona un ingrediente',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: snapshot.data!.map((ingredient) {
-                                return DropdownMenuItem<String>(
-                                  value: ingredient.id,
-                                  child: Text(ingredient.name),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedIngredientId = value;
-                                });
-                              },
-                            );
-                          },
+                                : null,
+                          ),
+                          onTap: coaster.claimedByUserId == null
+                              ? () {
+                            setState(() {
+                              _coasterId = coaster.id;
+                              _generateCoasterQRCode(coaster);
+                            });
+                          }
+                              : null,
+                          enabled: coaster.claimedByUserId == null,
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Pulsante per generare il sottobicchiere
-                ElevatedButton.icon(
-                  onPressed: _isGenerating
-                      ? null
-                      : (_selectedRecipeId != null && _selectedIngredientId != null)
-                      ? () => _createCoaster()
-                      : null,
-                  icon: _isGenerating
-                      ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                      : const Icon(Icons.add_circle),
-                  label: Text(_isGenerating
-                      ? 'Creazione in corso...'
-                      : 'Crea Sottobicchiere'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 48),
-                  ),
-                ),
-              ],
-            ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
           ),
         ),
         if (_qrData != null && _isCoaster)
           _buildQRCodeCard(),
       ],
     );
+  }
+
+  Future<Map<String, String?>> _getCoasterDetails(CoasterModel coaster) async {
+    try {
+      final recipe = await _dbService.getRecipe(coaster.recipeId);
+      final ingredient = await _dbService.getIngredient(coaster.ingredientId);
+
+      return {
+        'recipeName': recipe?.name,
+        'ingredientName': ingredient?.name,
+      };
+    } catch (e) {
+      return {
+        'recipeName': 'Errore',
+        'ingredientName': 'Errore',
+      };
+    }
+  }
+
+  void _generateCoasterQRCode(CoasterModel coaster) {
+    Map<String, dynamic> data = {
+      'type': 'coaster',
+      'id': coaster.id,
+    };
+
+    setState(() {
+      _qrData = _formatQRData(data);
+      _isCoaster = true;
+    });
   }
 
   Widget _buildQRCodeCard() {

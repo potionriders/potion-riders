@@ -19,10 +19,6 @@ class QrService {
         dataModuleShape: QrDataModuleShape.square,
         color: primaryColor,
       ),
-      embeddedImage: const AssetImage('assets/images/logo.png'),
-      embeddedImageStyle: QrEmbeddedImageStyle(
-        size: Size(size * 0.2, size * 0.2),
-      ),
     );
   }
 

@@ -5,6 +5,7 @@ import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/screens/qr_code_generator_screen.dart';
 
+import '../utils/import_database.dart';
 import 'direct_import_screen.dart';
 import 'excel_impor_screen.dart';
 import 'import_game_data_screen.dart';
@@ -93,100 +94,297 @@ class _AdminScreenState extends State<AdminScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildDatabaseManagementCard(context, uid),
-          const SizedBox(height: 16),
-          _buildQRCodeManagementCard(context),
-          const SizedBox(height: 16),
-          _buildUserManagementCard(context),
-          const SizedBox(height: 16),
-          const SizedBox(height: 8,),
+          // Intestazione dashboard
           Card(
             elevation: 4,
+            color: Colors.red.shade50,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.upload_file,
-                        color: Colors.blue,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'Importazione Dati',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                  Icon(
+                    Icons.admin_panel_settings,
+                    size: 36,
+                    color: Colors.red.shade700,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pannello Amministratore',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Importa pozioni, ingredienti e sottobicchieri dal tuo file Excel o da JSON.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ExcelImportScreen()),
-                      );
-                    },
-                    icon: Icon(Icons.table_chart),
-                    label: Text('Importa da Excel'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(double.infinity, 48),
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ImportGameDataScreen()),
-                      );
-                    },
-                    icon: Icon(Icons.upload_file),
-                    label: Text('Gestione Completa Dati'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(double.infinity, 48),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Gestisci tutti gli aspetti del gioco',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.red.shade600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DirectImportScreen()),
-              );
-            },
-            icon: Icon(Icons.paste),
-            label: Text('Importazione Diretta JSON'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-              minimumSize: Size(double.infinity, 48),
+          const SizedBox(height: 24),
+
+          // Sezione Database
+          Text(
+            'Gestione Database',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
             ),
           ),
-          if (_statusMessage.isNotEmpty) _buildStatusMessage(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildDatabaseCard(
+                  context: context,
+                  title: 'Popola Database',
+                  description: 'Crea dati di test',
+                  icon: Icons.add_circle_outline,
+                  color: Colors.green,
+                  onTap: _isLoading ? null : () => _populateDatabase(context, uid),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildDatabaseCard(
+                  context: context,
+                  title: 'Pulisci Database',
+                  description: 'Elimina tutti i dati',
+                  icon: Icons.delete_outline,
+                  color: Colors.red,
+                  onTap: _isLoading ? null : () => _clearDatabase(context, uid),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Sezione Importazione
+          Text(
+            'Importazione Dati',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildImportSection(context),
+          const SizedBox(height: 24),
+
+          // Sezione QR Code
+          Text(
+            'Gestione QR Code',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildQRCodeManagementCard(context),
+          const SizedBox(height: 24),
+
+          // Sezione Utenti
+          Text(
+            'Gestione Utenti',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildUserManagementCard(context),
+
+          if (_statusMessage.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildStatusMessage(),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildDatabaseCard({
+    required BuildContext context,
+    required String title,
+    required String description,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 120,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: color.withOpacity(0.1),
+          border: Border.all(
+            color: color.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 36),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color.withOpacity(0.8),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImportSection(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.upload_file,
+                  color: Colors.blue.shade700,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Importa Dati di Gioco',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Importa pozioni, ingredienti e sottobicchieri dai tuoi file.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 16),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 3,
+              children: [
+                _buildImportButton(
+                  context: context,
+                  title: 'Excel',
+                  icon: Icons.table_chart,
+                  color: Colors.green,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ExcelImportScreen()),
+                  ),
+                ),
+                _buildImportButton(
+                  context: context,
+                  title: 'JSON',
+                  icon: Icons.code,
+                  color: Colors.orange,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DirectImportScreen()),
+                  ),
+                ),
+                _buildImportButton(
+                  context: context,
+                  title: 'Completo',
+                  icon: Icons.upload_file,
+                  color: Colors.blue,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ImportGameDataScreen()),
+                  ),
+                ),
+                _buildImportButton(
+                  context: context,
+                  title: 'Database',
+                  icon: Icons.storage,
+                  color: Colors.purple,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ImportCoastersJsonScreen()),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImportButton({
+    required BuildContext context,
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(title, style: const TextStyle(fontSize: 12)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
     );
   }

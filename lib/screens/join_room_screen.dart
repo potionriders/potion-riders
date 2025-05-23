@@ -9,7 +9,9 @@ import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/models/user_model.dart';
 
 class JoinRoomScreen extends StatefulWidget {
-  const JoinRoomScreen({super.key});
+  final String? roomId; // Aggiunto parametro opzionale
+
+  const JoinRoomScreen({super.key, this.roomId});
 
   @override
   _JoinRoomScreenState createState() => _JoinRoomScreenState();
@@ -23,6 +25,16 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   String? _scannedRoomId;
   bool _isJoining = false;
   bool _isConfirming = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Se viene passato un roomId, lo usa direttamente
+    if (widget.roomId != null) {
+      _scannedRoomId = widget.roomId;
+      _roomIdController.text = widget.roomId!;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

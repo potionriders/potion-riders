@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
@@ -54,28 +55,42 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
             }
           }),
         ),
-        const SafeArea(
+        SafeArea(
           child: Padding(
-            padding: EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
                 Text(
-                  'Inquadra il QR code del sottobicchiere o elemento',
-                  style: TextStyle(
+                  kIsWeb
+                      ? 'Inquadra il QR code con la fotocamera'
+                      : 'Inquadra il QR code del sottobicchiere o elemento',
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
                   'Per reclamare una pozione o un ingrediente',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     color: Colors.grey,
                   ),
                   textAlign: TextAlign.center,
                 ),
+                if (kIsWeb) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Nota: potrebbe essere necessario consentire l\'accesso alla fotocamera',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.red.shade700,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
             ),
           ),

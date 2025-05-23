@@ -120,6 +120,10 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
   }
 
   Widget _buildCoasterCard(BuildContext context) {
+    final bool hasRecipe = _recipe != null;
+    final bool hasIngredient = _ingredient != null;
+    final bool canSwitch = hasRecipe || hasIngredient || widget.onSwitchItem != null;
+
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(
@@ -129,36 +133,111 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Header con pulsante di cambio modalità
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
+          if (canSwitch)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.swap_horiz),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Cambia elemento attivo',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _showRecipe ? Colors.purple.shade100 : Colors.green.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: !_showRecipe ? () => _toggleView() : null,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(20),
+                            bottomLeft: Radius.circular(20),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _showRecipe ? Colors.purple : Colors.transparent,
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(20),
+                                bottomLeft: Radius.circular(20),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.science,
+                                  size: 16,
+                                  color: _showRecipe ? Colors.white : Colors.purple,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Pozione',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _showRecipe ? Colors.white : Colors.purple,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: _showRecipe ? () => _toggleView() : null,
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(20),
+                            bottomRight: Radius.circular(20),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: !_showRecipe ? Colors.green : Colors.transparent,
+                              borderRadius: const BorderRadius.only(
+                                topRight: Radius.circular(20),
+                                bottomRight: Radius.circular(20),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.eco,
+                                  size: 16,
+                                  color: !_showRecipe ? Colors.white : Colors.green,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Ingrediente',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: !_showRecipe ? Colors.white : Colors.green,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.swap_horiz),
-                const SizedBox(width: 8),
-                Text(
-                  'Sottobicchiere #${widget.coaster!.id.substring(0, 6)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                Switch(
-                  value: _showRecipe,
-                  onChanged: (value) => _toggleView(),
-                  activeColor: Colors.purple,
-                  activeThumbImage: const AssetImage('assets/images/potion.png'),
-                  inactiveThumbImage: const AssetImage('assets/images/leaf.png'),
-                ),
-              ],
-            ),
-          ),
 
           // Contenuto dinamico in base allo stato
           _showRecipe
