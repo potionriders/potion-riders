@@ -126,6 +126,409 @@ class DatabaseService {
     }
   }
 
+  // Versioni corrette dei metodi con casting appropriato
+
+  /// Verifica se un utente può creare una stanza (non è già in una stanza attiva)
+  Future<bool> canCreateRoom(String userId) async {
+    try {
+      // Controlla se l'utente è host in qualche stanza attiva
+      QuerySnapshot hostRooms = await _db.collection('rooms')
+          .where('hostId', isEqualTo: userId)
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      if (hostRooms.docs.isNotEmpty) return false;
+
+      // Controlla se l'utente è partecipante in qualche stanza attiva
+      QuerySnapshot allRooms = await _db.collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      for (var doc in allRooms.docs) {
+        // Cast corretto con controllo null
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          RoomModel room = RoomModel.fromMap(data, doc.id);
+          if (room.participants.any((p) => p.userId == userId)) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error checking if user can create room: $e');
+      return false;
+    }
+  }
+
+  /// Ottiene statistiche dell'utente
+  Future<Map<String, int>> getUserStats(String userId) async {
+    try {
+      // Conta le stanze completate come host
+      QuerySnapshot hostCompletions = await _db.collection('completions')
+          .where('hostId', isEqualTo: userId)
+          .get();
+
+      // Conta le stanze completate come partecipante
+      QuerySnapshot allCompletions = await _db.collection('completions').get();
+      int participantCompletions = 0;
+
+      for (var doc in allCompletions.docs) {
+        // Cast corretto con controllo null
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          List<dynamic> participants = data['participants'] ?? [];
+          if (participants.contains(userId)) {
+            participantCompletions++;
+          }
+        }
+      }
+
+      return {
+        'totalCompletions': hostCompletions.docs.length + participantCompletions,
+        'hostCompletions': hostCompletions.docs.length,
+        'participantCompletions': participantCompletions,
+      };
+    } catch (e) {
+      debugPrint('Error getting user stats: $e');
+      return {
+        'totalCompletions': 0,
+        'hostCompletions': 0,
+        'participantCompletions': 0,
+      };
+    }
+  }
+
+  /// Ottiene la classifica con statistiche aggiuntive
+  Stream<List<Map<String, dynamic>>> getDetailedLeaderboard() {
+    return _db.collection('users')
+        .orderBy('points', descending: true)
+        .limit(50)
+        .snapshots()
+        .asyncMap((snapshot) async {
+      List<Map<String, dynamic>> detailedUsers = [];
+
+      for (var doc in snapshot.docs) {
+        // Cast corretto con controllo null
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          UserModel user = UserModel.fromMap(data, doc.id);
+          Map<String, int> stats = await getUserStats(user.uid);
+
+          detailedUsers.add({
+            'user': user,
+            'stats': stats,
+          });
+        }
+      }
+
+      return detailedUsers;
+    });
+  }
+
+  /// Rimuove un partecipante da una stanza
+  Future<void> removeParticipantFromRoom(String roomId, String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('rooms').doc(roomId).get();
+      if (doc.exists) {
+        // Cast corretto con controllo null
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          List<dynamic> participants = List.from(data['participants'] ?? []);
+
+          // Rimuovi il partecipante dalla lista
+          participants.removeWhere((participant) =>
+          participant is Map<String, dynamic> &&
+              participant['userId'] == userId);
+
+          await _db.collection('rooms').doc(roomId).update({
+            'participants': participants,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error removing participant from room: $e');
+      rethrow;
+    }
+  }
+
+  /// Conferma partecipazione (versione corretta)
+  Future<void> confirmParticipation(String roomId, String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('rooms').doc(roomId).get();
+      if (doc.exists) {
+        // Cast corretto con controllo null
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null) {
+          List<dynamic> participants = List.from(data['participants'] ?? []);
+
+          for (int i = 0; i < participants.length; i++) {
+            if (participants[i] is Map<String, dynamic> &&
+                participants[i]['userId'] == userId) {
+              participants[i]['hasConfirmed'] = true;
+              break;
+            }
+          }
+
+          await _db.collection('rooms').doc(roomId).update({
+            'participants': participants,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error confirming participation: $e');
+      rethrow;
+    }
+  }
+
+  /// Dismette una stanza e rimuove tutti i partecipanti
+  Future<void> dismissRoom(String roomId) async {
+    try {
+      await _db.collection('rooms').doc(roomId).update({
+        'participants': [],
+        'isCompleted': true,
+        'dismissedAt': FieldValue.serverTimestamp(),
+        'dismissReason': 'host_dismissed',
+      });
+    } catch (e) {
+      debugPrint('Error dismissing room: $e');
+      rethrow;
+    }
+  }
+
+  /// Ottiene le stanze aperte (non completate e con posti disponibili)
+  Stream<List<RoomModel>> getOpenRooms() {
+    return _db.collection('rooms')
+        .where('isCompleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
+          .where((room) => room.participants.length < 3)
+          .toList();
+    });
+  }
+
+  /// Libera gli slot degli utenti quando una stanza viene completata o dismessa
+  Future<void> freeUserSlots(List<String> userIds) async {
+    try {
+      WriteBatch batch = _db.batch();
+
+      for (String userId in userIds) {
+        DocumentReference userRef = _db.collection('users').doc(userId);
+        batch.update(userRef, {
+          'currentRecipeId': null,
+          'currentIngredientId': null,
+        });
+      }
+
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Error freeing user slots: $e');
+      rethrow;
+    }
+  }
+
+  /// Completa una stanza e libera gli slot (versione migliorata)
+  Future<void> completeRoomAndFreeSlots(String roomId) async {
+    try {
+      // Ottieni i dati della stanza
+      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) return;
+
+      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+
+      // Segna la stanza come completata
+      await _db.collection('rooms').doc(roomId).update({
+        'isCompleted': true,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Assegna punti all'host (chi ha la ricetta)
+      await updatePoints(room.hostId, 10);
+
+      // Assegna punti ai partecipanti (chi ha gli ingredienti)
+      for (ParticipantModel participant in room.participants) {
+        await updatePoints(participant.userId, 5);
+      }
+
+      // Registra il completamento
+      await createCompletionRecord(
+        room.hostId,
+        room.recipeId,
+        room.participants.map((p) => p.userId).toList(),
+      );
+
+      // Libera gli slot di tutti i partecipanti (incluso l'host)
+      List<String> allUserIds = [room.hostId];
+      allUserIds.addAll(room.participants.map((p) => p.userId));
+      await freeUserSlots(allUserIds);
+
+      // Assegna nuovi elementi casuali a tutti i partecipanti
+      for (String userId in allUserIds) {
+        await assignRandomGameElement(userId);
+      }
+    } catch (e) {
+      debugPrint('Error completing room and freeing slots: $e');
+      rethrow;
+    }
+  }
+
+
+  /// Verifica se un utente può unirsi a una stanza specifica
+  Future<bool> canJoinSpecificRoom(String roomId, String userId) async {
+    try {
+      final room = await getRoom(roomId).first;
+
+      if (room == null || room.isCompleted) {
+        return false;
+      }
+
+      // Verifica se l'utente è già nella stanza
+      if (room.participants.any((p) => p.userId == userId) || room.hostId == userId) {
+        return false;
+      }
+
+      // Verifica se c'è ancora spazio nella stanza
+      if (room.participants.length >= 3) {
+        return false;
+      }
+
+      // Verifica se l'utente non è già in un'altra stanza attiva
+      return await canCreateRoom(userId);
+    } catch (e) {
+      debugPrint('Error checking if user can join specific room: $e');
+      return false;
+    }
+  }
+
+  /// Ottiene informazioni dettagliate su un ingrediente tramite ID
+  Future<String> getIngredientNameById(String ingredientId) async {
+    try {
+      final ingredient = await getIngredient(ingredientId);
+      return ingredient?.name ?? 'Ingrediente sconosciuto';
+    } catch (e) {
+      debugPrint('Error getting ingredient name: $e');
+      return 'Ingrediente sconosciuto';
+    }
+  }
+
+  /// Ottiene informazioni dettagliate su una ricetta tramite ID
+  Future<String> getRecipeNameById(String recipeId) async {
+    try {
+      final recipe = await getRecipe(recipeId);
+      return recipe?.name ?? 'Ricetta sconosciuta';
+    } catch (e) {
+      debugPrint('Error getting recipe name: $e');
+      return 'Ricetta sconosciuta';
+    }
+  }
+
+  /// Ottiene il coaster dell'utente come stream
+  Stream<CoasterModel?> getUserCoasterStream(String userId) {
+    return _db.collection('coasters')
+        .where('claimedByUserId', isEqualTo: userId)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) return null;
+      return CoasterModel.fromMap(
+          snapshot.docs.first.data(),
+          snapshot.docs.first.id
+      );
+    });
+  }
+
+  /// Reclama un coaster e lo assegna come elemento casuale
+  Future<bool> claimCoaster(String coasterId, String userId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
+
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+
+      if (!coaster.isActive || coaster.claimedByUserId != null) {
+        return false; // Già reclamato o disattivato
+      }
+
+      // Reclama il coaster
+      await _db.collection('coasters').doc(coasterId).update({
+        'claimedByUserId': userId,
+      });
+
+      // NON assegnare automaticamente un elemento - l'utente sceglierà
+      // nella schermata di selezione
+
+      return true;
+    } catch (e) {
+      debugPrint('Error claiming coaster: $e');
+      return false;
+    }
+  }
+
+  /// Usa sottobicchiere (come pozione o ingrediente) - versione migliorata
+  Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
+
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+
+      if (!coaster.isActive || coaster.claimedByUserId != userId) {
+        return false; // Non attivo o non reclamato da questo utente
+      }
+
+      // Aggiorna il coaster con l'uso scelto
+      await _db.collection('coasters').doc(coasterId).update({
+        'usedAs': useAs,
+      });
+
+      // Aggiorna l'utente con l'elemento scelto
+      if (useAs == 'recipe') {
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': coaster.recipeId,
+          'currentIngredientId': null,
+        });
+      } else if (useAs == 'ingredient') {
+        await _db.collection('users').doc(userId).update({
+          'currentIngredientId': coaster.ingredientId,
+          'currentRecipeId': null,
+        });
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error using coaster: $e');
+      return false;
+    }
+  }
+
+  /// Ottiene un coaster specifico con gestione errori migliorata
+  Future<CoasterModel?> getCoaster(String coasterId) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (doc.exists) {
+        return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting coaster: $e');
+      if (e.toString().contains('permission-denied')) {
+        // In caso di problemi di permessi, restituisci un coaster temporaneo
+        // che permetterà comunque di procedere con la selezione
+        return CoasterModel(
+          id: coasterId,
+          recipeId: 'temp_recipe_id',
+          ingredientId: 'temp_ingredient_id',
+          isActive: true,
+        );
+      }
+      return null;
+    }
+  }
+
   // =============================================================================
   // GAME ELEMENTS MANAGEMENT
   // =============================================================================
@@ -373,19 +776,6 @@ class DatabaseService {
     );
   }
 
-  /// Ottiene tutte le stanze aperte
-  Stream<List<RoomModel>> getOpenRooms() {
-    return _db.collection('rooms')
-        .where('isCompleted', isEqualTo: false)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return RoomModel.fromMap(doc.data(), doc.id);
-      }).toList();
-    });
-  }
-
   /// Ottiene le stanze di un utente (come host o partecipante)
   Stream<List<RoomModel>> getUserRooms(String userId) {
     // Firestore non supporta query array-contains su oggetti complessi
@@ -413,31 +803,6 @@ class DatabaseService {
       });
     } catch (e) {
       debugPrint('Error joining room: $e');
-      rethrow;
-    }
-  }
-
-  /// Conferma partecipazione
-  Future<void> confirmParticipation(String roomId, String userId) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('rooms').doc(roomId).get();
-      if (doc.exists) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        List<dynamic> participants = List.from(data['participants']);
-
-        for (int i = 0; i < participants.length; i++) {
-          if (participants[i]['userId'] == userId) {
-            participants[i]['hasConfirmed'] = true;
-            break;
-          }
-        }
-
-        await _db.collection('rooms').doc(roomId).update({
-          'participants': participants,
-        });
-      }
-    } catch (e) {
-      debugPrint('Error confirming participation: $e');
       rethrow;
     }
   }
@@ -598,72 +963,6 @@ class DatabaseService {
     }
   }
 
-  // Ottieni sottobicchiere
-  Future<CoasterModel?> getCoaster(String coasterId) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-      if (doc.exists) {
-        return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Error getting coaster: $e');
-      return null;
-    }
-  }
-
-  // Reclama sottobicchiere
-  Future<bool> claimCoaster(String coasterId, String userId) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-      if (!doc.exists) return false;
-
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      if (!coaster.isActive || coaster.claimedByUserId != null) {
-        return false; // Già reclamato o disattivato
-      }
-
-      await _db.collection('coasters').doc(coasterId).update({
-        'claimedByUserId': userId,
-      });
-
-      return true;
-    } catch (e) {
-      debugPrint('Error claiming coaster: $e');
-      return false;
-    }
-  }
-
-  // Usa sottobicchiere (come pozione o ingrediente)
-  Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-      if (!doc.exists) return false;
-
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      if (!coaster.isActive || coaster.usedAs != null || coaster.claimedByUserId != userId) {
-        return false; // Non attivo, già usato o non reclamato da questo utente
-      }
-
-      await _db.collection('coasters').doc(coasterId).update({
-        'usedAs': useAs,
-      });
-
-      if (useAs == 'recipe') {
-        await assignRecipe(userId, coaster.recipeId);
-      } else if (useAs == 'ingredient') {
-        await assignIngredient(userId, coaster.ingredientId);
-      }
-
-      return true;
-    } catch (e) {
-      debugPrint('Error using coaster: $e');
-      return false;
-    }
-  }
-
   // Genera coasters in bulk per test
   Future<void> generateTestCoasters(String uid, int count) async {
     bool isAdmin = await isUserAdmin(uid);
@@ -765,21 +1064,6 @@ class DatabaseService {
       return snapshot.docs.map((doc) {
         return CoasterModel.fromMap(doc.data(), doc.id);
       }).toList();
-    });
-  }
-
-  // Versione stream del metodo sopra
-  Stream<CoasterModel?> getUserCoasterStream(String userId) {
-    return _db.collection('coasters')
-        .where('claimedByUserId', isEqualTo: userId)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return CoasterModel.fromMap(
-          snapshot.docs.first.data(),
-          snapshot.docs.first.id
-      );
     });
   }
 

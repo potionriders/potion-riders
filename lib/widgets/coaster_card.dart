@@ -4,6 +4,7 @@ import 'package:potion_riders/models/ingredient_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/services/ingredient_service.dart';
 import 'package:potion_riders/services/recipe_service.dart';
+import 'package:potion_riders/services/database_service.dart';
 
 class HomeScreenCoasterCard extends StatefulWidget {
   final String? currentRecipeId;
@@ -12,6 +13,7 @@ class HomeScreenCoasterCard extends StatefulWidget {
   final VoidCallback? onTapRecipe;
   final VoidCallback? onTapIngredient;
   final Function(bool)? onSwitchItem;
+  final String? userId; // Aggiunto per gestire il flip
 
   const HomeScreenCoasterCard({
     super.key,
@@ -21,27 +23,55 @@ class HomeScreenCoasterCard extends StatefulWidget {
     this.onTapRecipe,
     this.onTapIngredient,
     this.onSwitchItem,
+    this.userId,
   });
 
   @override
   State<HomeScreenCoasterCard> createState() => _HomeScreenCoasterCardState();
 }
 
-class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
+class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard>
+    with TickerProviderStateMixin {
   final RecipeService _recipeService = RecipeService();
   final IngredientService _ingredientService = IngredientService();
+  final DatabaseService _dbService = DatabaseService();
 
   bool _showRecipe = true;
   RecipeModel? _recipe;
   IngredientModel? _ingredient;
   bool _isLoading = true;
+  bool _isFlipping = false;
+
+  // Animation controller per l'effetto flip
+  late AnimationController _flipController;
+  late Animation<double> _flipAnimation;
 
   @override
   void initState() {
     super.initState();
+
+    // Inizializza l'animazione di flip
+    _flipController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _flipAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _flipController,
+      curve: Curves.easeInOut,
+    ));
+
     // Decidiamo cosa mostrare inizialmente in base a cosa è attualmente selezionato
     _showRecipe = widget.currentRecipeId != null;
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _flipController.dispose();
+    super.dispose();
   }
 
   @override
@@ -60,17 +90,32 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
     });
 
     try {
-      // Carica i dati dai servizi
-      if (widget.currentRecipeId != null) {
-        _recipe = await _recipeService.getRecipe(widget.currentRecipeId!);
-        _showRecipe = true;
-      }
+      // Se c'è un coaster, carica entrambi gli elementi
+      if (widget.coaster != null) {
+        _recipe = await _recipeService.getRecipe(widget.coaster!.recipeId);
+        _ingredient = await _ingredientService.getIngredient(widget.coaster!.ingredientId);
 
-      if (widget.currentIngredientId != null) {
-        _ingredient = await _ingredientService.getIngredient(widget.currentIngredientId!);
-        // Se non c'è una pozione, mostriamo l'ingrediente
-        if (widget.currentRecipeId == null) {
+        // Determina cosa mostrare in base all'uso corrente del coaster
+        if (widget.coaster!.usedAs == 'recipe') {
+          _showRecipe = true;
+        } else if (widget.coaster!.usedAs == 'ingredient') {
           _showRecipe = false;
+        } else {
+          // Se non è ancora usato, usa la logica precedente
+          _showRecipe = widget.currentRecipeId != null;
+        }
+      } else {
+        // Logica originale per elementi singoli
+        if (widget.currentRecipeId != null) {
+          _recipe = await _recipeService.getRecipe(widget.currentRecipeId!);
+          _showRecipe = true;
+        }
+
+        if (widget.currentIngredientId != null) {
+          _ingredient = await _ingredientService.getIngredient(widget.currentIngredientId!);
+          if (widget.currentRecipeId == null) {
+            _showRecipe = false;
+          }
         }
       }
     } catch (e) {
@@ -82,13 +127,71 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
     }
   }
 
-  void _toggleView() {
+  Future<void> _handleFlip() async {
+    if (_isFlipping || widget.coaster == null || widget.userId == null) return;
+
     setState(() {
-      _showRecipe = !_showRecipe;
-      if (widget.onSwitchItem != null) {
-        widget.onSwitchItem!(_showRecipe);
-      }
+      _isFlipping = true;
     });
+
+    try {
+      // Inizia l'animazione di flip
+      await _flipController.forward();
+
+      // Cambia il lato attivo nel database
+      final newUseAsRecipe = !_showRecipe;
+      final success = await _dbService.switchCoasterUsage(
+        widget.userId!,
+        widget.coaster!.id,
+        newUseAsRecipe,
+      );
+
+      if (success) {
+        setState(() {
+          _showRecipe = newUseAsRecipe;
+        });
+
+        // Notifica il parent del cambio
+        if (widget.onSwitchItem != null) {
+          widget.onSwitchItem!(_showRecipe);
+        }
+
+        // Mostra messaggio di successo
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_showRecipe
+                ? 'Ora stai usando la pozione!'
+                : 'Ora stai usando l\'ingrediente!'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        // Se fallisce, torna indietro
+        await _flipController.reverse();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Errore durante il cambio. Riprova.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      await _flipController.reverse();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Errore: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isFlipping = false;
+      });
+
+      // Reset dell'animazione
+      _flipController.reset();
+    }
   }
 
   @override
@@ -122,7 +225,7 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
   Widget _buildCoasterCard(BuildContext context) {
     final bool hasRecipe = _recipe != null;
     final bool hasIngredient = _ingredient != null;
-    final bool canSwitch = hasRecipe || hasIngredient || widget.onSwitchItem != null;
+    final bool canSwitch = hasRecipe && hasIngredient && !_isFlipping;
 
     return Card(
       elevation: 4,
@@ -132,7 +235,7 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header con pulsante di cambio modalità
+          // Header con pulsante di flip
           if (canSwitch)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -145,104 +248,72 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.swap_horiz),
+                  const Icon(Icons.flip),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Cambia elemento attivo',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
+                  const Expanded(
+                    child: Text(
+                      'Sottobicchiere',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _showRecipe ? Colors.purple.shade100 : Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: !_showRecipe ? () => _toggleView() : null,
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(20),
-                            bottomLeft: Radius.circular(20),
+                  // Pulsante flip animato
+                  AnimatedBuilder(
+                    animation: _flipAnimation,
+                    builder: (context, child) {
+                      return Transform.rotate(
+                        angle: _flipAnimation.value * 3.14159, // Rotazione di 180 gradi
+                        child: ElevatedButton.icon(
+                          onPressed: _isFlipping ? null : _handleFlip,
+                          icon: _isFlipping
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.flip, size: 18),
+                          label: Text(
+                            _showRecipe ? 'Usa Ingrediente' : 'Usa Pozione',
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          child: Container(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _showRecipe ? Colors.green : Colors.purple,
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _showRecipe ? Colors.purple : Colors.transparent,
-                              borderRadius: const BorderRadius.only(
-                                topLeft: Radius.circular(20),
-                                bottomLeft: Radius.circular(20),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.science,
-                                  size: 16,
-                                  color: _showRecipe ? Colors.white : Colors.purple,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Pozione',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: _showRecipe ? Colors.white : Colors.purple,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            minimumSize: Size.zero,
                           ),
                         ),
-                        InkWell(
-                          onTap: _showRecipe ? () => _toggleView() : null,
-                          borderRadius: const BorderRadius.only(
-                            topRight: Radius.circular(20),
-                            bottomRight: Radius.circular(20),
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: !_showRecipe ? Colors.green : Colors.transparent,
-                              borderRadius: const BorderRadius.only(
-                                topRight: Radius.circular(20),
-                                bottomRight: Radius.circular(20),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.eco,
-                                  size: 16,
-                                  color: !_showRecipe ? Colors.white : Colors.green,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Ingrediente',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: !_showRecipe ? Colors.white : Colors.green,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ],
               ),
             ),
 
-          // Contenuto dinamico in base allo stato
-          _showRecipe
-              ? _buildRecipeContent(context)
-              : _buildIngredientContent(context),
+          // Contenuto dinamico con animazione di flip
+          AnimatedBuilder(
+            animation: _flipAnimation,
+            builder: (context, child) {
+              // Durante la prima metà dell'animazione mostra il lato corrente
+              // Durante la seconda metà mostra il lato opposto
+              final showCurrentSide = _flipAnimation.value < 0.5;
+
+              return Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.001) // Prospettiva
+                  ..rotateY(_flipAnimation.value * 3.14159),
+                child: _flipAnimation.value < 0.5
+                    ? (_showRecipe ? _buildRecipeContent(context) : _buildIngredientContent(context))
+                    : Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..rotateY(3.14159), // Flip per il lato opposto
+                  child: !_showRecipe ? _buildRecipeContent(context) : _buildIngredientContent(context),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -501,6 +572,7 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard> {
     );
   }
 
+  // Gli altri metodi rimangono uguali...
   Widget _buildRecipeCard(BuildContext context) {
     if (_recipe == null) {
       return _buildEmptyStateCard(context);

@@ -5,12 +5,13 @@ import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/user_model.dart';
+import 'package:potion_riders/models/coaster_model.dart';
 import 'package:potion_riders/screens/create_room_screen.dart';
 import 'package:potion_riders/screens/join_room_screen.dart';
 import 'package:potion_riders/screens/leaderboard_screen.dart';
-import 'package:potion_riders/screens/claim_coaster_by_id_screen.dart';
 import '../widgets/coaster_card.dart';
 import 'admin_screen.dart';
+import 'package:potion_riders/screens/claim_coaster_by_id_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -61,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Card elemento corrente
+                        // Card elemento corrente con supporto coaster
                         _buildCurrentElementCard(context, user, uid),
                         const SizedBox(height: 24),
 
@@ -238,27 +239,43 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            // Widget del sottobicchiere/elemento
-            HomeScreenCoasterCard(
-              currentRecipeId: user.currentRecipeId,
-              currentIngredientId: user.currentIngredientId,
-              onTapRecipe: () {
-                if (user.currentRecipeId != null) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CreateRoomScreen(recipeId: user.currentRecipeId!),
-                    ),
-                  );
-                }
-              },
-              onTapIngredient: () {
-                if (user.currentIngredientId != null) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
-                  );
-                }
+            // Widget del sottobicchiere/elemento con supporto coaster
+            StreamBuilder<CoasterModel?>(
+              stream: _dbService.getUserCoasterStream(uid),
+              builder: (context, coasterSnapshot) {
+                final coaster = coasterSnapshot.data;
+
+                return HomeScreenCoasterCard(
+                  currentRecipeId: user.currentRecipeId,
+                  currentIngredientId: user.currentIngredientId,
+                  coaster: coaster,
+                  userId: uid,
+                  onTapRecipe: () {
+                    if (user.currentRecipeId != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CreateRoomScreen(recipeId: user.currentRecipeId!),
+                        ),
+                      );
+                    }
+                  },
+                  onTapIngredient: () {
+                    if (user.currentIngredientId != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
+                      );
+                    }
+                  },
+                  onSwitchItem: (bool useAsRecipe) {
+                    // Callback quando l'utente cambia l'uso del coaster
+                    // Questo refresh viene gestito automaticamente dal StreamBuilder
+                    setState(() {
+                      // Force refresh della UI se necessario
+                    });
+                  },
+                );
               },
             ),
           ],
@@ -461,7 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 12),
           _buildTutorialStep('1', 'Ottieni un sottobicchiere scansionando o inserendo l\'ID'),
-          _buildTutorialStep('2', 'Scegli se usarlo come pozione o ingrediente'),
+          _buildTutorialStep('2', 'Scegli se usarlo come pozione o ingrediente (puoi cambiare!)'),
           _buildTutorialStep('3', 'Collabora con altri per completare le pozioni'),
           _buildTutorialStep('4', 'Guadagna punti e scala la classifica!'),
         ],
@@ -535,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8),
               const Text('2. Scansiona il QR code o inserisci l\'ID manualmente'),
               const SizedBox(height: 8),
-              const Text('3. Scegli se usare il lato pozione o ingrediente'),
+              const Text('3. Scegli se usare il lato pozione o ingrediente (puoi cambiare dopo!)'),
               const SizedBox(height: 8),
               const Text('4. Se hai una pozione, crea una stanza'),
               const SizedBox(height: 8),
@@ -549,6 +566,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const Text('• Chi ha la pozione: 10 punti'),
               const Text('• Chi porta gli ingredienti: 5 punti'),
+              const SizedBox(height: 16),
+              const Text(
+                'Nuovo!',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              ),
+              const Text('• Puoi cambiare l\'uso del sottobicchiere in qualsiasi momento!'),
+              const Text('• Usa il pulsante "Flip" nella card per alternare tra pozione e ingrediente'),
             ],
           ),
         ),

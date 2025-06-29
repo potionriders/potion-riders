@@ -73,97 +73,20 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // Login con Google
-  Future<UserCredential?> signInWithGoogleOld() async {
-    try {
-      // Trigger del flusso di autenticazione
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-
-      // Se l'utente annulla il login, ritorna null
-      if (googleUser == null) return null;
-
-      // Ottieni i dettagli dell'autenticazione dalla richiesta
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Crea una nuova credenziale
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // Una volta autenticato, torna il risultato dell'UserCredential
-      UserCredential result = await _auth.signInWithCredential(credential);
-
-      // Verifica se l'utente esiste già nel database
-      final userDoc = await _firestore.collection('users').doc(result.user!.uid).get();
-
-      // Se è la prima volta che l'utente accede, crea il profilo nel database
-      if (!userDoc.exists) {
-        // Verifichiamo l'unicità del nickname
-        String nickname = result.user!.displayName ?? 'Giocatore';
-        bool isUnique = await _dbService.isNicknameUnique(nickname);
-
-        // Se il nickname non è unico, aggiungiamo un suffisso numerico
-        if (!isUnique) {
-          int suffix = 1;
-          while (!isUnique) {
-            nickname = '${result.user!.displayName ?? 'Giocatore'}_$suffix';
-            isUnique = await _dbService.isNicknameUnique(nickname);
-            suffix++;
-          }
-        }
-
-        await _dbService.createUser(
-          result.user!.uid,
-          result.user!.email ?? '',
-          nickname,
-          photoUrl: result.user!.photoURL,
-        );
-
-        // Imposta il flag che indica un nuovo utente
-        _isNewUser = true;
-        debugPrint('New user created: ${result.user!.uid}');
-        notifyListeners();
-      } else {
-        debugPrint('Existing user logged in: ${result.user!.uid}');
-      }
-
-      return result;
-    } catch (e) {
-      debugPrint('Error signing in with Google: $e');
-
-      // Log più dettagliato per le eccezioni di Google Sign-In
-      if (e is PlatformException) {
-        debugPrint('PlatformException details:');
-        debugPrint('  Code: ${e.code}');
-        debugPrint('  Message: ${e.message}');
-        debugPrint('  Details: ${e.details}');
-      }
-
-      rethrow;
-    }
-  }
-
-  // Logout
-  Future<void> logout() async {
-    try {
-      await _googleSignIn.signOut();
-      await _auth.signOut();
-    } catch (e) {
-      debugPrint('Error logging out: $e');
-      rethrow;
-    }
-  }
-
+  // Login con Google - VERSIONE CORRETTA
   Future<UserCredential?> signInWithGoogle() async {
     try {
       // Verifica se siamo su web o mobile
       if (kIsWeb) {
         // Processo per Web
         GoogleAuthProvider authProvider = GoogleAuthProvider();
-        return await _auth.signInWithPopup(authProvider);
+        UserCredential result = await _auth.signInWithPopup(authProvider);
+
+        // Processa l'utente dopo l'autenticazione
+        await _processGoogleUser(result);
+        return result;
       } else {
-        // Processo per mobile - necessita correzione
+        // Processo per mobile
         final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
         if (googleUser == null) return null;
@@ -180,49 +103,90 @@ class AuthService with ChangeNotifier {
         // Autenticazione con Firebase
         UserCredential result = await _auth.signInWithCredential(credential);
 
-        // Resto del codice per verificare e creare utente...
-        final userDoc = await _firestore.collection('users').doc(result.user!.uid).get();
-
-        if (!userDoc.exists) {
-          // Verifichiamo l'unicità del nickname
-          String nickname = result.user!.displayName ?? 'Giocatore';
-          bool isUnique = await _dbService.isNicknameUnique(nickname);
-
-          // Se il nickname non è unico, aggiungiamo un suffisso numerico
-          if (!isUnique) {
-            int suffix = 1;
-            while (!isUnique) {
-              nickname = '${result.user!.displayName ?? 'Giocatore'}_$suffix';
-              isUnique = await _dbService.isNicknameUnique(nickname);
-              suffix++;
-            }
-          }
-
-          await _dbService.createUser(
-            result.user!.uid,
-            result.user!.email ?? '',
-            nickname,
-            photoUrl: result.user!.photoURL,
-          );
-
-          // Imposta il flag che indica un nuovo utente
-          _isNewUser = true;
-          debugPrint('New user created: ${result.user!.uid}');
-          notifyListeners();
-        }
-
+        // Processa l'utente dopo l'autenticazione
+        await _processGoogleUser(result);
         return result;
       }
     } catch (e) {
       debugPrint('Errore accesso con Google: $e');
+      rethrow;
+    }
+  }
 
-      if (e is PlatformException) {
-        debugPrint('Dettagli PlatformException:');
-        debugPrint('  Codice: ${e.code}');
-        debugPrint('  Messaggio: ${e.message}');
-        debugPrint('  Dettagli: ${e.details}');
+  // Metodo separato per processare l'utente Google
+  Future<void> _processGoogleUser(UserCredential result) async {
+    try {
+      final user = result.user!;
+
+      // Verifica se l'utente esiste già nel database con retry
+      DocumentSnapshot? userDoc;
+      int attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          userDoc = await _firestore.collection('users').doc(user.uid).get();
+          break;
+        } catch (e) {
+          attempts++;
+          if (attempts >= maxAttempts) rethrow;
+          await Future.delayed(Duration(milliseconds: 500 * attempts));
+        }
       }
 
+      // Se è la prima volta che l'utente accede, crea il profilo nel database
+      if (userDoc == null || !userDoc.exists) {
+        // Verifichiamo l'unicità del nickname
+        String nickname = user.displayName ?? 'Giocatore';
+        bool isUnique = await _dbService.isNicknameUnique(nickname);
+
+        // Se il nickname non è unico, aggiungiamo un suffisso numerico
+        if (!isUnique) {
+          int suffix = 1;
+          String originalNickname = nickname;
+          while (!isUnique && suffix < 100) {
+            nickname = '${originalNickname}_$suffix';
+            isUnique = await _dbService.isNicknameUnique(nickname);
+            suffix++;
+          }
+        }
+
+        // Crea l'utente nel database
+        await _dbService.createUser(
+          user.uid,
+          user.email ?? '',
+          nickname,
+          photoUrl: user.photoURL,
+        );
+
+        // Imposta il flag che indica un nuovo utente
+        _isNewUser = true;
+        debugPrint('New user created: ${user.uid}');
+
+        // Attendi un momento per assicurarsi che i dati siano scritti
+        await Future.delayed(const Duration(milliseconds: 1000));
+
+        notifyListeners();
+      } else {
+        debugPrint('Existing user logged in: ${user.uid}');
+        _isNewUser = false;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error processing Google user: $e');
+      rethrow;
+    }
+  }
+
+  // Logout
+  Future<void> logout() async {
+    try {
+      await _googleSignIn.signOut();
+      await _auth.signOut();
+      _isNewUser = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error logging out: $e');
       rethrow;
     }
   }

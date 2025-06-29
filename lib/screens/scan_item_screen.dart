@@ -7,6 +7,8 @@ import 'package:potion_riders/services/qr_service.dart';
 import 'package:potion_riders/models/coaster_model.dart';
 import 'package:potion_riders/screens/coaster_selection_screen.dart';
 
+import 'claim_coaster_by_id_screen.dart';
+
 class ScanItemScreen extends StatefulWidget {
   const ScanItemScreen({super.key});
 
@@ -17,7 +19,7 @@ class ScanItemScreen extends StatefulWidget {
 class _ScanItemScreenState extends State<ScanItemScreen> {
   final DatabaseService _dbService = DatabaseService();
 
-  bool _isScanning = true;  // Inizia direttamente in modalità scanner
+  bool _isScanning = true;
   bool _isProcessing = false;
   String? _scannedData;
   String? _error;
@@ -32,6 +34,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scansiona Sottobicchiere'),
+        backgroundColor: kIsWeb ? Theme.of(context).primaryColor : null,
       ),
       body: _isScanning
           ? _buildQrScanner(context, uid)
@@ -42,6 +45,27 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
   Widget _buildQrScanner(BuildContext context, String? uid) {
     return Column(
       children: [
+        // Banner informativo per il web
+        if (kIsWeb)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Colors.blue.shade100,
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue.shade800),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Assicurati di aver consentito l\'accesso alla fotocamera quando richiesto dal browser',
+                    style: TextStyle(color: Colors.blue.shade800),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Scanner QR
         Expanded(
           child: QrService.qrScanner((data) async {
             setState(() {
@@ -55,10 +79,23 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
             }
           }),
         ),
+
+        // Istruzioni e controlli
         SafeArea(
-          child: Padding(
+          child: Container(
             padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   kIsWeb
@@ -71,24 +108,61 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-                Text(
+                const Text(
                   'Per reclamare una pozione o un ingrediente',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                if (kIsWeb) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Nota: potrebbe essere necessario consentire l\'accesso alla fotocamera',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.red.shade700,
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Indietro'),
                     ),
-                    textAlign: TextAlign.center,
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ClaimCoasterByIdScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.keyboard),
+                      label: const Text('Inserisci ID'),
+                    ),
+                  ],
+                ),
+                if (kIsWeb) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber, color: Colors.amber.shade800, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Se la fotocamera non funziona, usa "Inserisci ID"',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -218,7 +292,12 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(_parsedData!['id'] ?? 'Sconosciuto'),
+                        Expanded(
+                          child: Text(
+                            _parsedData!['id'] ?? 'Sconosciuto',
+                            style: const TextStyle(fontFamily: 'monospace'),
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -236,6 +315,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
                 _success = null;
                 _scannedData = null;
                 _parsedData = null;
+                _isProcessing = false;
               });
             },
             icon: const Icon(Icons.qr_code_scanner),
@@ -249,7 +329,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
             onPressed: () {
               Navigator.pop(context);
             },
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.home),
             label: const Text('Torna alla Home'),
           ),
         ],
@@ -301,39 +381,75 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
 
   Future<void> _processCoaster(BuildContext context, String uid, String coasterId) async {
     try {
-      // Poiché abbiamo problemi di permessi, create un coaster temporaneo con i dati minimi necessari
-      // Questo evita di dover recuperare il coaster dal database
-      final tempCoaster = CoasterModel(
-        id: coasterId,
-        recipeId: 'temp_recipe_id',  // ID temporaneo che verrà sostituito nella schermata di selezione
-        ingredientId: 'temp_ingredient_id',  // ID temporaneo che verrà sostituito nella schermata di selezione
-        isActive: true,
-        claimedByUserId: uid,
-      );
+      // Verifica se il coaster esiste
+      final coaster = await _dbService.getCoaster(coasterId);
 
-      // Naviga alla schermata di selezione passando l'ID del coaster
-      // La schermata di selezione caricherà i dettagli necessari senza query problematiche
-      setState(() {
-        _isProcessing = false;
-      });
+      if (coaster == null) {
+        setState(() {
+          _error = 'Sottobicchiere non trovato. Verifica l\'ID.';
+          _isProcessing = false;
+        });
+        return;
+      }
 
-      // Simula un'operazione di claim riuscita
-      _success = 'Sottobicchiere reclamato con successo! Scegli quale lato utilizzare.';
+      // Verifica se è già stato reclamato da qualcun altro
+      if (coaster.claimedByUserId != null && coaster.claimedByUserId != uid) {
+        setState(() {
+          _error = 'Questo sottobicchiere è già stato reclamato da un altro giocatore.';
+          _isProcessing = false;
+        });
+        return;
+      }
 
-      // Breve ritardo per mostrare il messaggio di successo prima di navigare
-      await Future.delayed(const Duration(milliseconds: 1500));
+      // Se l'utente l'ha già reclamato, vai alla selezione
+      if (coaster.claimedByUserId == uid) {
+        setState(() {
+          _success = 'Sottobicchiere già tuo! Scegli quale lato utilizzare.';
+          _isProcessing = false;
+        });
 
-      // Naviga alla schermata di selezione
-      Navigator.pushReplacement(
+        await Future.delayed(const Duration(milliseconds: 1500));
+
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => CoasterSelectionScreen(
               coasterId: coasterId,
-              recipeId: 'temp_recipe_id',  // Sarà caricato nella schermata
-              ingredientId: 'temp_ingredient_id',  // Sarà caricato nella schermata
+              recipeId: coaster.recipeId,
+              ingredientId: coaster.ingredientId,
             ),
-          )
-      );
+          ),
+        );
+        return;
+      }
+
+      // Reclama il sottobicchiere
+      final success = await _dbService.claimCoaster(coasterId, uid);
+
+      if (success) {
+        setState(() {
+          _success = 'Sottobicchiere reclamato con successo! Scegli quale lato utilizzare.';
+          _isProcessing = false;
+        });
+
+        await Future.delayed(const Duration(milliseconds: 1500));
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CoasterSelectionScreen(
+              coasterId: coasterId,
+              recipeId: coaster.recipeId,
+              ingredientId: coaster.ingredientId,
+            ),
+          ),
+        );
+      } else {
+        setState(() {
+          _error = 'Impossibile reclamare il sottobicchiere. Riprova.';
+          _isProcessing = false;
+        });
+      }
     } catch (e) {
       setState(() {
         _error = 'Errore durante l\'elaborazione del sottobicchiere: $e';
@@ -405,7 +521,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
 
       return result;
     } catch (e) {
-      print('Errore parsing QR data: $e');
+      debugPrint('Errore parsing QR data: $e');
       return {};
     }
   }
