@@ -2,21 +2,25 @@ class UserModel {
   final String uid;
   final String email;
   final String nickname;
-  final String? photoUrl; // Nota: questo è photoUrl, non avatarUrl
+  final String? photoUrl;
   final String role;
   int points;
   String? currentRecipeId;
   String? currentIngredientId;
+  List<String> rooms;
+  List<String> completedRooms;
 
   UserModel({
     required this.uid,
     required this.email,
     required this.nickname,
     this.photoUrl,
-    this.role = 'player', // Default role è 'player'
+    this.role = 'player',
     this.points = 0,
     this.currentRecipeId,
     this.currentIngredientId,
+    this.rooms = const [],
+    this.completedRooms = const [],
   });
 
   Map<String, dynamic> toMap() {
@@ -29,6 +33,8 @@ class UserModel {
       'points': points,
       'currentRecipeId': currentRecipeId,
       'currentIngredientId': currentIngredientId,
+      'rooms': rooms,
+      'completedRooms': completedRooms,
     };
   }
 
@@ -42,6 +48,20 @@ class UserModel {
       points: map['points'] ?? 0,
       currentRecipeId: map['currentRecipeId'],
       currentIngredientId: map['currentIngredientId'],
+      rooms: List<String>.from(map['rooms'] ?? []),
+      completedRooms: List<String>.from(map['completedRooms'] ?? []),
     );
   }
+
+  bool isInRoom(String roomId) {
+    return rooms.contains(roomId);
+  }
+
+  bool hasCompletedRoom(String roomId) {
+    return completedRooms.contains(roomId);
+  }
+
+  int get activeRoomsCount => rooms.length;
+
+  int get totalCompletedRooms => completedRooms.length;
 }

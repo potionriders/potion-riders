@@ -57,11 +57,7 @@ class ProfileScreen extends StatelessWidget {
                         backgroundColor: Theme.of(
                           context,
                         ).primaryColor.withOpacity(0.2),
-                        backgroundImage: user.photoUrl != null
-                            ? NetworkImage(user.photoUrl!)
-                            : null,
-                        child: user.photoUrl == null
-                            ? Text(
+                        child: Text(
                                 user.nickname.isNotEmpty
                                     ? user.nickname[0].toUpperCase()
                                     : '?',
@@ -70,8 +66,7 @@ class ProfileScreen extends StatelessWidget {
                                   fontWeight: FontWeight.bold,
                                   color: Theme.of(context).primaryColor,
                                 ),
-                              )
-                            : null,
+                              ),
                       ),
                       const SizedBox(height: 16),
 

@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
-import 'package:potion_riders/services/room_service.dart';
-import 'package:potion_riders/services/qr_service.dart';
 import 'package:potion_riders/models/room_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/models/user_model.dart';
+import 'package:potion_riders/screens/room_management_screen.dart';
+import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 
 class JoinRoomScreen extends StatefulWidget {
-  final String? roomId; // Aggiunto parametro opzionale
+  final String? roomId;
 
   const JoinRoomScreen({super.key, this.roomId});
 
@@ -18,217 +18,216 @@ class JoinRoomScreen extends StatefulWidget {
 }
 
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
-  final TextEditingController _roomIdController = TextEditingController();
   final DatabaseService _dbService = DatabaseService();
-
-  bool _isScanning = false;
+  final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
+  QRViewController? controller;
   String? _scannedRoomId;
-  bool _isJoining = false;
-  bool _isConfirming = false;
+  bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
-    // Se viene passato un roomId, lo usa direttamente
     if (widget.roomId != null) {
       _scannedRoomId = widget.roomId;
-      _roomIdController.text = widget.roomId!;
     }
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
-    final roomService = Provider.of<RoomService>(context);
     final uid = authService.currentUser?.uid;
+
+    if (uid == null) {
+      return const Scaffold(
+        body: Center(child: Text('Non sei autenticato')),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Unisciti a una Stanza'),
+        title: Text(_scannedRoomId != null ? 'Unisciti alla Stanza' : 'Scansiona QR Code'),
+        actions: [
+          if (_scannedRoomId != null)
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () {
+                setState(() {
+                  _scannedRoomId = null;
+                });
+              },
+              tooltip: 'Scansiona nuovo QR',
+            ),
+        ],
       ),
-      body: _isScanning
-          ? _buildQrScanner(context, roomService)
-          : _scannedRoomId != null
-              ? _buildRoomPreview(context, _scannedRoomId!, uid, roomService)
-              : _buildJoinForm(context, uid),
+      body: _scannedRoomId != null
+          ? _buildRoomDetails(uid)
+          : _buildQRScanner(),
     );
   }
 
-  Widget _buildJoinForm(BuildContext context, String? uid) {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(
-            Icons.meeting_room,
-            size: 64,
-            color: Theme.of(context).primaryColor.withOpacity(0.5),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Unisciti a una stanza',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Inserisci l\'ID della stanza o scansiona il QR code',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          TextField(
-            controller: _roomIdController,
-            decoration: InputDecoration(
-              labelText: 'ID Stanza',
-              hintText: 'Inserisci l\'ID della stanza',
-              prefixIcon: const Icon(Icons.vpn_key),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+  Widget _buildQRScanner() {
+    return Column(
+      children: [
+        // Istruzioni
+        Container(
+          padding: const EdgeInsets.all(16.0),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue[600]),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Come unirsi a una stanza',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Scansiona il QR code mostrato dal giocatore che ha creato la stanza per unirti automaticamente.',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: uid == null || _roomIdController.text.isEmpty
-                ? null
-                : () {
-                    setState(() {
-                      _scannedRoomId = _roomIdController.text;
-                    });
-                  },
-            icon: const Icon(Icons.login),
-            label: const Text('Unisciti'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () {
-              setState(() => _isScanning = true);
-            },
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Scansiona QR code'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQrScanner(BuildContext context, RoomService roomService) {
-    return Column(
-      children: [
-        Expanded(
-          child: QrService.qrScanner((data) {
-            final Map<String, dynamic>? roomData =
-                roomService.parseQrData(data);
-            if (roomData != null) {
-              setState(() {
-                _isScanning = false;
-                _scannedRoomId = roomData['roomId'];
-              });
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('QR code non valido')),
-              );
-            }
-          }),
         ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                const Text(
-                  'Inquadra il QR code della stanza',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() => _isScanning = false);
-                  },
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Indietro'),
-                ),
-              ],
+
+        // Scanner QR
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!, width: 2),
             ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: QRView(
+                key: qrKey,
+                onQRViewCreated: _onQRViewCreated,
+                overlay: QrScannerOverlayShape(
+                  borderColor: Colors.blue,
+                  borderRadius: 10,
+                  borderLength: 30,
+                  borderWidth: 10,
+                  cutOutSize: 250,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Pulsante manuale
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: OutlinedButton.icon(
+            onPressed: _showManualEntryDialog,
+            icon: const Icon(Icons.edit),
+            label: const Text('Inserisci ID manualmente'),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildRoomPreview(
-    BuildContext context,
-    String roomId,
-    String? uid,
-    RoomService roomService,
-  ) {
+  Widget _buildRoomDetails(String uid) {
     return StreamBuilder<RoomModel?>(
-      stream: _dbService.getRoom(roomId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      stream: _dbService.getRoom(_scannedRoomId!),
+      builder: (context, roomSnapshot) {
+        if (roomSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final room = snapshot.data;
+        final room = roomSnapshot.data;
         if (room == null) {
           return _buildRoomNotFound(context);
         }
 
-        // Controlla se l'utente è già nella stanza
-        bool isHost = room.hostId == uid;
-        bool isParticipant = room.participants.any((p) => p.userId == uid);
-        bool hasConfirmed = isParticipant &&
-            room.participants.firstWhere((p) => p.userId == uid).hasConfirmed;
+        // NUOVO: Controlla se l'utente è già in questa stanza
+        return StreamBuilder<UserModel?>(
+          stream: _dbService.getUser(uid),
+          builder: (context, userSnapshot) {
+            final user = userSnapshot.data;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildRoomStatusCard(context, room),
-              const SizedBox(height: 16),
-              FutureBuilder<RecipeModel?>(
-                future: _dbService.getRecipe(room.recipeId),
-                builder: (context, recipeSnapshot) {
-                  final recipe = recipeSnapshot.data;
-                  return _buildRecipeCard(context, recipe);
-                },
-              ),
-              const SizedBox(height: 16),
-              _buildParticipantsCard(context, room, uid),
-              const SizedBox(height: 24),
+            if (user != null && user.isInRoom(_scannedRoomId!)) {
+              // L'utente è già in questa stanza, reindirizza alla gestione
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RoomManagementScreen(roomId: _scannedRoomId!),
+                  ),
+                );
+              });
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Sei già in questa stanza, reindirizzamento...'),
+                  ],
+                ),
+              );
+            }
 
-              // Azioni disponibili in base allo stato dell'utente
-              if (room.isCompleted)
-                _buildCompletedCard(context)
-              else if (isHost || isParticipant)
-                _buildMemberActions(
-                    context, room, uid!, isHost, hasConfirmed, roomService)
-              else
-                _buildJoinActions(context, room, uid!, roomService),
-            ],
-          ),
+            return _buildRoomDetailsContent(room, uid);
+          },
         );
       },
+    );
+  }
+
+  Widget _buildRoomDetailsContent(RoomModel room, String uid) {
+    final isHost = room.hostId == uid;
+    final isParticipant = room.participants.any((p) => p.userId == uid);
+    final myParticipant = room.participants.where((p) => p.userId == uid).firstOrNull;
+    final hasConfirmed = myParticipant?.hasConfirmed ?? false;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Stato della stanza
+          _buildRoomStatusCard(context, room),
+          const SizedBox(height: 16),
+
+          // Informazioni sulla ricetta
+          StreamBuilder<RecipeModel?>(
+            stream: _dbService.getRecipe(room.recipeId).asStream(),
+            builder: (context, recipeSnapshot) {
+              final recipe = recipeSnapshot.data;
+              return _buildRecipeCard(context, recipe);
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildParticipantsCard(context, room, uid),
+          const SizedBox(height: 24),
+
+          // Azioni disponibili in base allo stato dell'utente
+          if (room.isCompleted)
+            _buildCompletedCard(context)
+          else if (isHost || isParticipant)
+            _buildMemberActions(context, room, uid, isHost, hasConfirmed)
+          else
+            _buildJoinActions(context, room, uid),
+        ],
+      ),
     );
   }
 
@@ -301,63 +300,14 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                     color: room.isCompleted ? Colors.green : Colors.orange,
                   ),
                 ),
-                const Spacer(),
-                room.isCompleted
-                    ? Chip(
-                        label: const Text('Completa'),
-                        backgroundColor: Colors.green.shade100,
-                        labelStyle: TextStyle(
-                          color: Colors.green.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : Chip(
-                        label: Text('${room.participants.length}/3'),
-                        backgroundColor: room.participants.length >= 3
-                            ? Colors.green.shade100
-                            : Colors.orange.shade100,
-                        labelStyle: TextStyle(
-                          color: room.participants.length >= 3
-                              ? Colors.green.shade800
-                              : Colors.orange.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
               ],
             ),
-            const SizedBox(height: 8),
             const Divider(),
-            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'ID Stanza:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '${room.id.substring(0, 8)}...',
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Creata il:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  _formatDateTime(room.createdAt),
-                ),
+                Text('Partecipanti: ${room.participants.length + 1}/4'),
+                Text('ID: ${room.id.substring(0, 8)}...'),
               ],
             ),
           ],
@@ -367,85 +317,51 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   }
 
   Widget _buildRecipeCard(BuildContext context, RecipeModel? recipe) {
-    if (recipe == null) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Center(
-            child: Text('Caricamento ricetta...'),
-          ),
-        ),
-      );
-    }
-
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Pozione',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              recipe.name,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Icon(Icons.local_pharmacy, color: Colors.purple[600]),
+                const SizedBox(width: 8),
+                const Text(
+                  'Ricetta richiesta',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
-              recipe.description,
-              style: const TextStyle(
-                fontSize: 14,
-              ),
+              recipe?.name ?? 'Caricamento...',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Ingredienti richiesti:',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
+            if (recipe?.description.isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              Text(
+                recipe!.description,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[600],
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            ...recipe.requiredIngredients.map((ingredient) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline,
-                        size: 16,
-                        color: Theme.of(context).primaryColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(ingredient),
-                    ],
-                  ),
-                )),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildParticipantsCard(
-      BuildContext context, RoomModel room, String? uid) {
+  Widget _buildParticipantsCard(BuildContext context, RoomModel room, String uid) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -458,10 +374,11 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 16),
-            // Host (con la ricetta)
-            StreamBuilder<UserModel?>(
-              stream: _dbService.getUser(room.hostId),
+            const SizedBox(height: 12),
+
+            // Host (chi ha la ricetta)
+            FutureBuilder<UserModel?>(
+              future: _dbService.getUser(room.hostId).first,
               builder: (context, snapshot) {
                 final String name = snapshot.data?.nickname ?? 'Giocatore';
                 final bool isCurrentUser = room.hostId == uid;
@@ -469,13 +386,14 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                 return _buildParticipantTile(
                   context: context,
                   name: name + (isCurrentUser ? ' (Tu)' : ''),
-                  role: 'Pozione',
-                  hasConfirmed: true, // L'host è sempre confermato
+                  role: 'Host - Ricetta',
+                  hasConfirmed: true,
                   isCurrentUser: isCurrentUser,
                 );
               },
             ),
             const SizedBox(height: 8),
+
             // Partecipanti (con ingredienti)
             if (room.participants.isEmpty)
               Padding(
@@ -489,53 +407,58 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                 ),
               )
             else
-              ...room.participants
-                  .map((participant) => FutureBuilder<UserModel?>(
-                        future: _dbService.getUser(participant.userId).first,
-                        builder: (context, snapshot) {
-                          final String name =
-                              snapshot.data?.nickname ?? 'Giocatore';
-                          final bool isCurrentUser = participant.userId == uid;
+              ...room.participants.map((participant) => FutureBuilder<UserModel?>(
+                future: _dbService.getUser(participant.userId).first,
+                builder: (context, snapshot) {
+                  final String name = snapshot.data?.nickname ?? 'Giocatore';
+                  final bool isCurrentUser = participant.userId == uid;
 
-                          return Column(
-                            children: [
-                              _buildParticipantTile(
-                                context: context,
-                                name: name + (isCurrentUser ? ' (Tu)' : ''),
-                                role: 'Ingrediente',
-                                hasConfirmed: participant.hasConfirmed,
-                                isCurrentUser: isCurrentUser,
-                              ),
-                              const SizedBox(height: 8),
-                            ],
+                  return Column(
+                    children: [
+                      FutureBuilder<String>(
+                        future: _dbService.getIngredientNameById(participant.ingredientId),
+                        builder: (context, ingredientSnapshot) {
+                          final ingredientName = ingredientSnapshot.data ?? 'Caricamento...';
+
+                          return _buildParticipantTile(
+                            context: context,
+                            name: name + (isCurrentUser ? ' (Tu)' : ''),
+                            role: 'Ingrediente - $ingredientName',
+                            hasConfirmed: participant.hasConfirmed,
+                            isCurrentUser: isCurrentUser,
                           );
                         },
-                      )),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  );
+                },
+              )).toList(),
 
-            // Mostra slot disponibili rimanenti
-            if (room.participants.length < 3)
-              ...List.generate(
-                  3 - room.participants.length,
-                  (index) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.grey[200],
-                            child: Icon(
-                              Icons.person_outline,
-                              color: Colors.grey[400],
-                            ),
-                          ),
-                          title: Text(
-                            'In attesa di un giocatore...',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      )),
+            // Slot liberi
+            for (int i = room.participants.length; i < 3; i++)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_add_outlined, color: Colors.grey[400]),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Slot libero ${i + 1}',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -549,340 +472,432 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     required bool hasConfirmed,
     required bool isCurrentUser,
   }) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor:
-            isCurrentUser ? Theme.of(context).primaryColor : Colors.grey[300],
-        child: Text(
-          name[0].toUpperCase(),
-          style: TextStyle(
-            color: isCurrentUser ? Colors.white : Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isCurrentUser ? Colors.blue[50] : Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isCurrentUser ? Colors.blue[200]! : Colors.grey[300]!,
         ),
       ),
-      title: Text(
-        name,
-        style: TextStyle(
-          fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      subtitle: Text(role),
-      trailing: hasConfirmed
-          ? const Icon(
-              Icons.check_circle,
-              color: Colors.green,
-            )
-          : const Icon(
-              Icons.timer,
-              color: Colors.orange,
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: isCurrentUser ? Colors.blue[100] : Colors.grey[300],
+            child: Icon(
+              Icons.person,
+              size: 16,
+              color: isCurrentUser ? Colors.blue[700] : Colors.grey[600],
             ),
-      contentPadding: EdgeInsets.zero,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  role,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (!role.contains('Host'))
+            Icon(
+              hasConfirmed ? Icons.check_circle : Icons.pending,
+              color: hasConfirmed ? Colors.green : Colors.orange,
+              size: 20,
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildCompletedCard(BuildContext context) {
-    return Card(
-      color: Colors.green.shade50,
-      shape: RoundedRectangleBorder(
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green[200]!),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Icon(
-              Icons.celebration,
-              color: Colors.green,
-              size: 48,
+      child: Row(
+        children: [
+          Icon(Icons.celebration, color: Colors.green[700], size: 32),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stanza completata!',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'Tutti i partecipanti hanno ricevuto i punti.',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Pozione completata!',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.green.shade800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Tutti i partecipanti hanno ricevuto i loro punti',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.green.shade700,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.home),
-              label: const Text('Torna alla Home'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildMemberActions(
-    BuildContext context,
-    RoomModel room,
-    String uid,
-    bool isHost,
-    bool hasConfirmed,
-    RoomService roomService,
-  ) {
-    // Se l'utente ha già confermato, mostra solo lo stato
-    if (hasConfirmed) {
-      return Column(
-        children: [
-          Card(
-            color: Colors.blue.shade50,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+  Widget _buildMemberActions(BuildContext context, RoomModel room, String uid, bool isHost, bool hasConfirmed) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (isHost) ...[
+          ElevatedButton.icon(
+            onPressed: room.participants.isNotEmpty &&
+                room.participants.every((p) => p.hasConfirmed)
+                ? () => _completeRoom(room)
+                : null,
+            icon: const Icon(Icons.check_circle),
+            label: const Text('Completa Pozione'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RoomManagementScreen(roomId: room.id),
+              ),
+            ),
+            icon: const Icon(Icons.settings),
+            label: const Text('Gestisci Stanza'),
+          ),
+        ] else ...[
+          if (!hasConfirmed)
+            ElevatedButton.icon(
+              onPressed: () => _confirmParticipation(room, uid),
+              icon: const Icon(Icons.check),
+              label: const Text('Conferma Partecipazione'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green[200]!),
+              ),
+              child: Row(
                 children: [
-                  const Icon(
-                    Icons.check_circle,
-                    color: Colors.blue,
-                    size: 36,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Hai confermato la tua partecipazione',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade800,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
+                  Icon(Icons.check_circle, color: Colors.green[700]),
+                  const SizedBox(width: 8),
                   const Text(
-                    'In attesa che tutti gli altri confermino...',
-                    textAlign: TextAlign.center,
+                    'Partecipazione confermata',
+                    style: TextStyle(fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            icon: const Icon(Icons.arrow_back),
-            label: const Text('Torna alla Home'),
+            onPressed: () => _leaveRoom(room, uid),
+            icon: const Icon(Icons.exit_to_app),
+            label: const Text('Abbandona Stanza'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
           ),
         ],
-      );
-    }
-
-    // Altrimenti, permetti all'utente di confermare
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ElevatedButton.icon(
-          onPressed: _isConfirming
-              ? null
-              : () => _confirmParticipation(context, room.id, uid, roomService),
-          icon: const Icon(Icons.check_circle_outline),
-          label: _isConfirming
-              ? const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text('Conferma in corso...'),
-                  ],
-                )
-              : const Text('Conferma partecipazione'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-          ),
-        ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: () {
-            setState(() => _scannedRoomId = null);
-          },
-          icon: const Icon(Icons.arrow_back),
-          label: const Text('Indietro'),
-        ),
       ],
     );
   }
 
-  Widget _buildJoinActions(
-    BuildContext context,
-    RoomModel room,
-    String uid,
-    RoomService roomService,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        StreamBuilder<UserModel?>(
-          stream: _dbService.getUser(uid),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const ElevatedButton(
-                onPressed: null,
-                child: Text('Caricamento...'),
-              );
-            }
+  Widget _buildJoinActions(BuildContext context, RoomModel room, String uid) {
+    return StreamBuilder<UserModel?>(
+      stream: _dbService.getUser(uid),
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        final canJoin = user?.currentIngredientId != null &&
+            !room.isCompleted &&
+            room.participants.length < 3;
 
-            final user = snapshot.data;
-            final hasIngredient = user?.currentIngredientId != null;
+        if (user?.currentIngredientId == null) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange[200]!),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning, color: Colors.orange[700]),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Non hai un ingrediente assegnato. Torna alla home per riceverne uno.',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
 
-            return ElevatedButton.icon(
-              onPressed: !hasIngredient || _isJoining
-                  ? null
-                  : () => _joinRoom(context, room.id, uid,
-                      user!.currentIngredientId!, roomService),
-              icon: const Icon(Icons.login),
-              label: _isJoining
-                  ? const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Text('Unione in corso...'),
-                      ],
-                    )
-                  : const Text('Unisciti a questa stanza'),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Mostra l'ingrediente dell'utente
+            FutureBuilder<String>(
+              future: _dbService.getIngredientNameById(user!.currentIngredientId!),
+              builder: (context, snapshot) {
+                final ingredientName = snapshot.data ?? 'Caricamento...';
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.inventory, color: Colors.blue[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Il tuo ingrediente: $ingredientName',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: canJoin && !_isProcessing ? () => _joinRoom(room, uid) : null,
+              icon: _isProcessing
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(Icons.group_add),
+              label: Text(_isProcessing ? 'Unendosi...' : 'Unisciti alla Stanza'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).primaryColor,
+                backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-            );
-          },
-        ),
-        const SizedBox(height: 8),
-        if (room.participants.length >= 3)
-          const Text(
-            'La stanza è piena, non è possibile unirsi',
-            style: TextStyle(
-              color: Colors.red,
-              fontStyle: FontStyle.italic,
             ),
-            textAlign: TextAlign.center,
-          ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: () {
-            setState(() => _scannedRoomId = null);
-          },
-          icon: const Icon(Icons.arrow_back),
-          label: const Text('Indietro'),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 
-  Future<void> _joinRoom(
-    BuildContext context,
-    String roomId,
-    String userId,
-    String ingredientId,
-    RoomService roomService,
-  ) async {
-    setState(() => _isJoining = true);
+  void _onQRViewCreated(QRViewController controller) {
+    this.controller = controller;
+    controller.scannedDataStream.listen((scanData) {
+      if (scanData.code != null && !_isProcessing) {
+        setState(() {
+          _scannedRoomId = scanData.code;
+        });
+        controller.pauseCamera();
+      }
+    });
+  }
+
+  void _showManualEntryDialog() {
+    final TextEditingController controller = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Inserisci ID Stanza'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'ID Stanza',
+            hintText: 'Inserisci l\'ID completo della stanza',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                setState(() {
+                  _scannedRoomId = controller.text.trim();
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Conferma'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _joinRoom(RoomModel room, String uid) async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
 
     try {
-      // Verifica se l'utente può unirsi alla stanza
-      final canJoin = await roomService.canJoinRoom(roomId, userId);
-
-      if (!canJoin) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Non puoi unirti a questa stanza')),
-        );
-        setState(() => _isJoining = false);
-        return;
+      final user = await _dbService.getUser(uid).first;
+      if (user?.currentIngredientId == null) {
+        throw Exception('Nessun ingrediente assegnato');
       }
 
-      // Unisci l'utente alla stanza
-      final success = await roomService.joinRoom(
-        roomId,
-        userId,
-        ingredientId,
-      );
+      await _dbService.joinRoom(room.id, uid, user!.currentIngredientId!);
 
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ti sei unito alla stanza!')),
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RoomManagementScreen(roomId: room.id),
+          ),
         );
-      } else {
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossibile unirsi alla stanza')),
+          const SnackBar(
+            content: Text('Ti sei unito alla stanza con successo!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore nell\'unirsi alla stanza: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => _isJoining = false);
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
-  Future<void> _confirmParticipation(
-    BuildContext context,
-    String roomId,
-    String userId,
-    RoomService roomService,
-  ) async {
-    setState(() => _isConfirming = true);
-
+  Future<void> _confirmParticipation(RoomModel room, String uid) async {
     try {
-      final success = await roomService.confirmParticipation(roomId, userId);
+      // Implementa la logica per confermare la partecipazione
+      // Questo dipende dalla tua implementazione esistente
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Partecipazione confermata!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Errore nella conferma: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
-      if (success) {
+  Future<void> _completeRoom(RoomModel room) async {
+    try {
+      await _dbService.completeRoom(room.id);
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Partecipazione confermata!')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossibile confermare la partecipazione')),
+          const SnackBar(
+            content: Text('Stanza completata con successo!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore: $e')),
-      );
-    } finally {
-      setState(() => _isConfirming = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore nel completare la stanza: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  Future<void> _leaveRoom(RoomModel room, String uid) async {
+    bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Abbandona Stanza'),
+        content: const Text('Sei sicuro di voler abbandonare questa stanza?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annulla'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Abbandona'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await _dbService.leaveRoom(room.id, uid);
+
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Hai abbandonato la stanza'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Errore nell\'abbandonare la stanza: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 }

@@ -4,30 +4,30 @@ import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/room_model.dart';
 import 'package:potion_riders/models/user_model.dart';
-import 'package:potion_riders/widgets/room_card.dart';
-import 'package:potion_riders/screens/create_room_screen.dart';
+import 'package:potion_riders/screens/room_management_screen.dart';
 import 'package:potion_riders/screens/join_room_screen.dart';
+import 'package:potion_riders/widgets/room_card.dart';
 
-class RoomsListScreen extends StatefulWidget {
-  const RoomsListScreen({super.key});
+class RoomListScreen extends StatefulWidget {
+  const RoomListScreen({super.key});
 
   @override
-  _RoomsListScreenState createState() => _RoomsListScreenState();
+  _RoomListScreenState createState() => _RoomListScreenState();
 }
 
-class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProviderStateMixin {
+class _RoomListScreenState extends State<RoomListScreen> with TickerProviderStateMixin {
   final DatabaseService _dbService = DatabaseService();
-  TabController? _tabController;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 3, vsync: this); // NUOVO: 3 tab invece di 2
   }
 
   @override
   void dispose() {
-    _tabController?.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -37,66 +37,97 @@ class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProv
     final uid = authService.currentUser?.uid;
 
     if (uid == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Stanze')),
-        body: const Center(child: Text('Devi essere autenticato')),
+      return const Scaffold(
+        body: Center(child: Text('Non sei autenticato')),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stanze di Gioco'),
+        title: const Text('Stanze'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(text: 'Aperte', icon: Icon(Icons.door_front_door)),
-            Tab(text: 'Le Mie', icon: Icon(Icons.person)),
-            Tab(text: 'Completate', icon: Icon(Icons.check_circle)),
+            Tab(icon: Icon(Icons.home), text: 'Le Mie Stanze'),
+            Tab(icon: Icon(Icons.search), text: 'Stanze Aperte'),
+            Tab(icon: Icon(Icons.history), text: 'Completate'), // NUOVO
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          // Tab Stanze Aperte
-          _buildOpenRoomsTab(uid),
-
-          // Tab Le Mie Stanze
           _buildMyRoomsTab(uid),
-
-          // Tab Stanze Completate
-          _buildCompletedRoomsTab(uid),
+          _buildOpenRoomsTab(uid),
+          _buildCompletedRoomsTab(uid), // NUOVO
         ],
       ),
-      floatingActionButton: StreamBuilder<UserModel?>(
-        stream: _dbService.getUser(uid),
-        builder: (context, snapshot) {
-          final hasRecipe = snapshot.data?.currentRecipeId != null;
+    );
+  }
 
-          if (!hasRecipe) return const SizedBox();
+  Widget _buildMyRoomsTab(String uid) {
+    return StreamBuilder<UserModel?>(
+      stream: _dbService.getUser(uid),
+      builder: (context, userSnapshot) {
+        if (userSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          return FloatingActionButton.extended(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CreateRoomScreen(
-                    recipeId: snapshot.data!.currentRecipeId!,
-                  ),
+        final user = userSnapshot.data;
+        if (user == null) {
+          return _buildErrorState('Utente non trovato');
+        }
+
+        return StreamBuilder<List<RoomModel>>(
+          stream: _dbService.getUserRooms(uid),
+          builder: (context, roomsSnapshot) {
+            if (roomsSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final rooms = roomsSnapshot.data ?? [];
+            final activeRooms = rooms.where((room) => !room.isCompleted).toList();
+
+            if (activeRooms.isEmpty) {
+              return _buildEmptyState(
+                icon: Icons.home_outlined,
+                title: 'Nessuna stanza attiva',
+                message: 'Non hai stanze attive al momento.\nCrea una nuova stanza o unisciti a una esistente!',
+                actionButton: ElevatedButton.icon(
+                  onPressed: () {
+                    _tabController.animateTo(1); // Vai al tab "Stanze Aperte"
+                  },
+                  icon: const Icon(Icons.search),
+                  label: const Text('Cerca Stanze'),
                 ),
               );
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Crea Stanza'),
-          );
-        },
-      ),
+            }
+
+            return RefreshIndicator(
+              onRefresh: () async {
+                setState(() {});
+              },
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: activeRooms.length,
+                itemBuilder: (context, index) {
+                  final room = activeRooms[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildMyRoomCard(room, uid),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
   Widget _buildOpenRoomsTab(String uid) {
     return StreamBuilder<List<RoomModel>>(
-      stream: _dbService.getOpenRooms(), // Nuovo metodo da aggiungere
+      stream: _dbService.getAllOpenRooms(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -121,7 +152,6 @@ class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProv
 
         return RefreshIndicator(
           onRefresh: () async {
-            // Forza il refresh
             setState(() {});
           },
           child: ListView.builder(
@@ -135,11 +165,10 @@ class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProv
                   room: room,
                   currentUserId: uid,
                   onTap: () {
-                    // Vai direttamente alla stanza
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RoomDetailScreen(roomId: room.id),
+                        builder: (_) => JoinRoomScreen(roomId: room.id),
                       ),
                     );
                   },
@@ -152,93 +181,293 @@ class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildMyRoomsTab(String uid) {
+  Widget _buildCompletedRoomsTab(String uid) {
     return StreamBuilder<List<RoomModel>>(
-      stream: _dbService.getUserRooms(uid), // Nuovo metodo da aggiungere
+      stream: _dbService.getUserCompletedRooms(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final rooms = snapshot.data ?? [];
-        final myActiveRooms = rooms
-            .where((room) => !room.isCompleted)
-            .toList();
+        final completedRooms = snapshot.data ?? [];
 
-        if (myActiveRooms.isEmpty) {
+        if (completedRooms.isEmpty) {
           return _buildEmptyState(
-            icon: Icons.inbox,
-            title: 'Nessuna stanza attiva',
-            message: 'Non sei in nessuna stanza attiva.\nCrea una nuova stanza o unisciti a una esistente!',
+            icon: Icons.history,
+            title: 'Nessuna stanza completata',
+            message: 'Non hai ancora completato nessuna stanza.\nPartecipa a delle stanze per vedere qui la cronologia!',
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: myActiveRooms.length,
-          itemBuilder: (context, index) {
-            final room = myActiveRooms[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: RoomCard(
-                room: room,
-                currentUserId: uid,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => RoomDetailScreen(roomId: room.id),
-                    ),
-                  );
-                },
-              ),
-            );
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() {});
           },
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: completedRooms.length,
+            itemBuilder: (context, index) {
+              final room = completedRooms[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildCompletedRoomCard(room, uid),
+              );
+            },
+          ),
         );
       },
     );
   }
 
-  Widget _buildCompletedRoomsTab(String uid) {
-    return StreamBuilder<List<RoomModel>>(
-      stream: _dbService.getUserRooms(uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+  Widget _buildMyRoomCard(RoomModel room, String uid) {
+    final isHost = room.hostId == uid;
 
-        final rooms = snapshot.data ?? [];
-        final completedRooms = rooms
-            .where((room) => room.isCompleted)
-            .toList();
-
-        if (completedRooms.isEmpty) {
-          return _buildEmptyState(
-            icon: Icons.emoji_events,
-            title: 'Nessuna stanza completata',
-            message: 'Non hai ancora completato nessuna pozione.\nGioca e completa le tue prime pozioni!',
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RoomManagementScreen(roomId: room.id),
+            ),
           );
-        }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header con ruolo e stato
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isHost ? Colors.purple[100] : Colors.green[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isHost ? 'HOST' : 'PARTECIPANTE',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: isHost ? Colors.purple[700] : Colors.green[700],
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'IN CORSO',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: completedRooms.length,
-          itemBuilder: (context, index) {
-            final room = completedRooms[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: RoomCard(
-                room: room,
-                currentUserId: uid,
-                onTap: () {
-                  // Mostra i dettagli della stanza completata
-                  _showCompletedRoomDetails(context, room);
+              // Ricetta
+              FutureBuilder<String>(
+                future: _dbService.getRecipeNameById(room.recipeId),
+                builder: (context, snapshot) {
+                  final recipeName = snapshot.data ?? 'Caricamento...';
+                  return Row(
+                    children: [
+                      Icon(
+                        Icons.local_pharmacy,
+                        color: Colors.purple[600],
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          recipeName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
                 },
               ),
-            );
-          },
-        );
-      },
+              const SizedBox(height: 8),
+
+              // Partecipanti
+              Row(
+                children: [
+                  Icon(
+                    Icons.people,
+                    color: Colors.grey[600],
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${room.participants.length + 1}/4 partecipanti',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'ID: ${room.id.substring(0, 8)}...',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[500],
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompletedRoomCard(RoomModel room, String uid) {
+    final isHost = room.hostId == uid;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header con ruolo e stato completato
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isHost ? Colors.purple[100] : Colors.green[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isHost ? 'HOST' : 'PARTECIPANTE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isHost ? Colors.purple[700] : Colors.green[700],
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        size: 12,
+                        color: Colors.green[700],
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'COMPLETATA',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Ricetta
+            FutureBuilder<String>(
+              future: _dbService.getRecipeNameById(room.recipeId),
+              builder: (context, snapshot) {
+                final recipeName = snapshot.data ?? 'Caricamento...';
+                return Row(
+                  children: [
+                    Icon(
+                      Icons.local_pharmacy,
+                      color: Colors.purple[600],
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        recipeName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+
+            // Informazioni aggiuntive
+            Row(
+              children: [
+                Icon(
+                  Icons.people,
+                  color: Colors.grey[600],
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${room.participants.length + 1} partecipanti',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const Spacer(),
+                Icon(
+                  Icons.star,
+                  color: Colors.amber[600],
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${isHost ? "10" : "5"} punti',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -246,97 +475,89 @@ class _RoomsListScreenState extends State<RoomsListScreen> with SingleTickerProv
     required IconData icon,
     required String title,
     required String message,
+    Widget? actionButton,
   }) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 72,
+              size: 80,
               color: Colors.grey[400],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Text(
               title,
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
+                color: Colors.black87,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               message,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 16,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+            ),
+            if (actionButton != null) ...[
+              const SizedBox(height: 24),
+              actionButton,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 80,
+              color: Colors.red[300],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Errore',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
                 color: Colors.grey[600],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCompletedRoomDetails(BuildContext context, RoomModel room) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Stanza Completata'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('ID: ${room.id.substring(0, 8)}...'),
-            const SizedBox(height: 8),
-            Text('Completata il: ${_formatDate(room.createdAt)}'),
-            const SizedBox(height: 16),
-            const Text(
-              'Punti guadagnati:',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {});
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Riprova'),
             ),
-            Text('Host: +10 punti'),
-            Text('Partecipanti: +5 punti ciascuno'),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Chiudi'),
-          ),
-        ],
       ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year} alle ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-// Schermata dettaglio stanza
-class RoomDetailScreen extends StatelessWidget {
-  final String roomId;
-
-  const RoomDetailScreen({super.key, required this.roomId});
-
-  @override
-  Widget build(BuildContext context) {
-    // Naviga a JoinRoomScreen passando il roomId
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => JoinRoomScreen(roomId: roomId),
-        ),
-      );
-    });
-
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
     );
   }
 }

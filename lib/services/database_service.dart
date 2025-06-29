@@ -45,30 +45,13 @@ class DatabaseService {
     return ingredientQuery.docs.isNotEmpty;
   }
 
-  /// Verifica se un nickname è già in uso
-  Future<bool> isNicknameUnique(String nickname) async {
-    try {
-      final QuerySnapshot result = await _db
-          .collection('users')
-          .where('nickname', isEqualTo: nickname)
-          .get();
-
-      return result.docs.isEmpty;
-    } catch (e) {
-      debugPrint('Error checking nickname uniqueness: $e');
-      // In caso di errore di permessi, assumiamo che il nickname sia disponibile
-      if (e.toString().contains('permission-denied')) {
-        return true;
-      }
-      return false;
-    }
-  }
-
-  /// Crea un nuovo utente nel database
-  Future<void> createUser(String uid, String email, String nickname, {
-    String? photoUrl,
-    String role = 'player'
-  }) async {
+  Future<void> createUser(
+      String uid,
+      String email,
+      String nickname, {
+        String? photoUrl,
+        String role = 'player'
+      }) async {
     try {
       final String gameUuid = const Uuid().v4();
 
@@ -81,6 +64,8 @@ class DatabaseService {
         'gameUuid': gameUuid,
         'currentRecipeId': null,
         'currentIngredientId': null,
+        'rooms': [], // NUOVO: Lista delle stanze attive
+        'completedRooms': [], // NUOVO: Lista delle stanze completate
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -101,6 +86,407 @@ class DatabaseService {
             (snapshot) => snapshot.exists ? UserModel.fromMap(snapshot.data()!, snapshot.id) : null
     );
   }
+
+  /// NUOVO: Aggiunge una stanza alla lista dell'utente
+  Future<void> addRoomToUser(String userId, String roomId) async {
+    try {
+      await _db.collection('users').doc(userId).update({
+        'rooms': FieldValue.arrayUnion([roomId]),
+      });
+    } catch (e) {
+      debugPrint('Error adding room to user: $e');
+      rethrow;
+    }
+  }
+
+  /// NUOVO: Rimuove una stanza dalla lista dell'utente (quando la stanza viene completata o abbandonata)
+  Future<void> removeRoomFromUser(String userId, String roomId) async {
+    try {
+      await _db.collection('users').doc(userId).update({
+        'rooms': FieldValue.arrayRemove([roomId]),
+      });
+    } catch (e) {
+      debugPrint('Error removing room from user: $e');
+      rethrow;
+    }
+  }
+
+  /// NUOVO: Aggiunge una stanza completata alla lista dell'utente
+  Future<void> addCompletedRoomToUser(String userId, String roomId) async {
+    try {
+      await _db.collection('users').doc(userId).update({
+        'completedRooms': FieldValue.arrayUnion([roomId]),
+      });
+    } catch (e) {
+      debugPrint('Error adding completed room to user: $e');
+      rethrow;
+    }
+  }
+
+  Stream<List<RoomModel>> getUserRooms(String userId) {
+    return _db.collection('rooms')
+        .where('hostId', isEqualTo: userId)
+        .where('isCompleted', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
+          .toList();
+    });
+  }
+
+  /// NUOVO: Ottiene le stanze completate di un utente
+  Stream<List<RoomModel>> getUserCompletedRooms(String userId) {
+    return getUser(userId).asyncMap((user) async {
+      if (user == null || user.completedRooms.isEmpty) {
+        return <RoomModel>[];
+      }
+
+      List<RoomModel> rooms = [];
+      for (String roomId in user.completedRooms) {
+        try {
+          DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+          if (roomDoc.exists) {
+            rooms.add(RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id));
+          }
+        } catch (e) {
+          debugPrint('Error getting completed room $roomId: $e');
+        }
+      }
+
+      rooms.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return rooms;
+    });
+  }
+
+  // =============================================================================
+  // ROOM MANAGEMENT - AGGIORNATO
+  // =============================================================================
+
+  /// MIGLIORATO: Crea una nuova stanza e aggiorna l'utente
+  Future<String> createRoom(String hostId, String recipeId) async {
+    try {
+      debugPrint('🏗️ Starting room creation for host: $hostId, recipe: $recipeId');
+
+      // Verifica che l'utente possa creare una stanza
+      bool canCreate = await canCreateRoom(hostId);
+      debugPrint('📝 Can create room: $canCreate');
+
+      if (!canCreate) {
+        throw Exception('User cannot create room - already in active room');
+      }
+
+      // PRIMA: Crea la stanza nel database
+      debugPrint('📤 Creating room document in Firebase...');
+      DocumentReference docRef = await _db.collection('rooms').add({
+        'hostId': hostId,
+        'recipeId': recipeId,
+        'participants': [],
+        'createdAt': FieldValue.serverTimestamp(),
+        'isCompleted': false,
+      });
+
+      final roomId = docRef.id;
+      debugPrint('✅ Room document created successfully with ID: $roomId');
+
+      // DOPO: Aggiungi la stanza alla lista dell'utente (fallimento qui non deve bloccare la stanza)
+      try {
+        debugPrint('👤 Adding room to user...');
+        await addRoomToUser(hostId, roomId);
+        debugPrint('✅ Room added to user successfully');
+      } catch (userUpdateError) {
+        debugPrint('⚠️ Warning: Room created but failed to update user: $userUpdateError');
+        // La stanza esiste, ma l'utente potrebbe non avere il riferimento
+        // Proviamo a recuperare in modo asincrono
+        _retryAddRoomToUser(hostId, roomId);
+      }
+
+      return roomId;
+    } catch (e) {
+      debugPrint('❌ Error creating room: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  Future<void> _retryAddRoomToUser(String userId, String roomId) async {
+    // Retry asincrono fino a 3 volte
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
+        await addRoomToUser(userId, roomId);
+        debugPrint('✅ Successfully added room to user on attempt $attempt');
+        return;
+      } catch (e) {
+        debugPrint('⚠️ Retry $attempt failed: $e');
+        if (attempt == 3) {
+          debugPrint('❌ All retries failed for adding room $roomId to user $userId');
+        }
+      }
+    }
+  }
+
+  /// Ottiene una stanza specifica
+  Stream<RoomModel?> getRoom(String roomId) {
+    return _db.collection('rooms').doc(roomId).snapshots().map(
+            (snapshot) => snapshot.exists ?
+        RoomModel.fromMap(snapshot.data()!, snapshot.id) : null
+    );
+  }
+
+  Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
+    try {
+      // Verifica che l'utente possa unirsi
+      bool canJoin = await canJoinSpecificRoom(roomId, userId);
+      if (!canJoin) {
+        throw Exception('User cannot join this room');
+      }
+
+      // Aggiungi il partecipante alla stanza
+      await _db.collection('rooms').doc(roomId).update({
+        'participants': FieldValue.arrayUnion([{
+          'userId': userId,
+          'ingredientId': ingredientId,
+          'hasConfirmed': false,
+        }]),
+      });
+
+      // NUOVO: Aggiungi la stanza alla lista dell'utente
+      await addRoomToUser(userId, roomId);
+    } catch (e) {
+      debugPrint('Error joining room: $e');
+      rethrow;
+    }
+  }
+
+  /// MIGLIORATO: Completa una stanza e aggiorna tutti gli utenti coinvolti
+  Future<void> completeRoom(String roomId) async {
+    try {
+      // Ottieni i dati della stanza
+      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) return;
+
+      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+
+      // Segna la stanza come completata
+      await _db.collection('rooms').doc(roomId).update({
+        'isCompleted': true,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Lista di tutti gli utenti coinvolti
+      List<String> allUserIds = [room.hostId];
+      allUserIds.addAll(room.participants.map((p) => p.userId));
+
+      // Aggiorna ogni utente
+      for (String userId in allUserIds) {
+        await Future.wait([
+          // Rimuovi dalla lista delle stanze attive
+          removeRoomFromUser(userId, roomId),
+          // Aggiungi alla lista delle stanze completate
+          addCompletedRoomToUser(userId, roomId),
+          // Assegna nuovi elementi casuali
+          assignRandomGameElement(userId),
+        ]);
+      }
+
+      // Assegna punti
+      await updatePoints(room.hostId, 10);
+      for (ParticipantModel participant in room.participants) {
+        await updatePoints(participant.userId, 5);
+      }
+
+      // Registra il completamento
+      await createCompletionRecord(
+        room.hostId,
+        room.recipeId,
+        room.participants.map((p) => p.userId).toList(),
+      );
+
+    } catch (e) {
+      debugPrint('Error completing room and updating users: $e');
+      rethrow;
+    }
+  }
+
+  /// MIGLIORATO: Abbandona una stanza (rimuove l'utente e aggiorna i riferimenti)
+  Future<void> leaveRoom(String roomId, String userId) async {
+    try {
+      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) return;
+
+      Map<String, dynamic> data = roomDoc.data() as Map<String, dynamic>;
+
+      // Se è l'host, elimina la stanza
+      if (data['hostId'] == userId) {
+        // Rimuovi la stanza da tutti i partecipanti
+        List<dynamic> participants = data['participants'] ?? [];
+        for (var participant in participants) {
+          if (participant is Map<String, dynamic>) {
+            await removeRoomFromUser(participant['userId'], roomId);
+          }
+        }
+
+        // Elimina la stanza
+        await _db.collection('rooms').doc(roomId).delete();
+      } else {
+        // Rimuovi il partecipante dalla stanza
+        List<dynamic> participants = List.from(data['participants'] ?? []);
+        participants.removeWhere((p) => p is Map<String, dynamic> && p['userId'] == userId);
+
+        await _db.collection('rooms').doc(roomId).update({
+          'participants': participants,
+        });
+      }
+
+      // Rimuovi la stanza dalla lista dell'utente
+      await removeRoomFromUser(userId, roomId);
+
+      // Assegna nuovo elemento casuale
+      await assignRandomGameElement(userId);
+    } catch (e) {
+      debugPrint('Error leaving room: $e');
+      rethrow;
+    }
+  }
+
+  /// MIGLIORATO: Verifica se un utente può creare una stanza usando i riferimenti diretti
+  Future<bool> canCreateRoom(String userId) async {
+    try {
+      debugPrint('🔍 Checking if user $userId can create room...');
+
+      UserModel? user = await getUser(userId).first;
+      debugPrint('👤 User found: ${user != null}');
+
+      if (user == null) {
+        debugPrint('❌ User not found, cannot create room');
+        return false;
+      }
+
+      debugPrint('📊 User active rooms: ${user.rooms}');
+      debugPrint('✅ Can create room: ${user.rooms.isEmpty}');
+
+      return user.rooms.isEmpty;
+    } catch (e) {
+      debugPrint('❌ Error checking if user can create room: $e');
+      // In caso di errore, permettiamo la creazione (fail-safe)
+      return true;
+    }
+  }
+
+  Future<void> syncUserRooms(String userId) async {
+    try {
+      debugPrint('🔄 Syncing rooms for user: $userId');
+
+      // Trova tutte le stanze dove l'utente è host o partecipante
+      QuerySnapshot hostRooms = await _db.collection('rooms')
+          .where('hostId', isEqualTo: userId)
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      QuerySnapshot allActiveRooms = await _db.collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      Set<String> userRooms = {};
+
+      // Aggiungi stanze dove è host
+      for (var doc in hostRooms.docs) {
+        userRooms.add(doc.id);
+      }
+
+      // Aggiungi stanze dove è partecipante
+      for (var doc in allActiveRooms.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        List<dynamic> participants = data['participants'] ?? [];
+
+        for (var participant in participants) {
+          if (participant is Map<String, dynamic> && participant['userId'] == userId) {
+            userRooms.add(doc.id);
+            break;
+          }
+        }
+      }
+
+      // Aggiorna l'utente con le stanze trovate
+      await _db.collection('users').doc(userId).update({
+        'rooms': userRooms.toList(),
+      });
+
+      debugPrint('✅ User rooms synced: ${userRooms.toList()}');
+    } catch (e) {
+      debugPrint('❌ Error syncing user rooms: $e');
+      rethrow;
+    }
+  }
+
+  Future<String> createRoomSimple(String hostId, String recipeId) async {
+    try {
+      debugPrint('🏗️ Creating simple room for host: $hostId, recipe: $recipeId');
+
+      DocumentReference docRef = await _db.collection('rooms').add({
+        'hostId': hostId,
+        'recipeId': recipeId,
+        'participants': [],
+        'createdAt': FieldValue.serverTimestamp(),
+        'isCompleted': false,
+      });
+
+      final roomId = docRef.id;
+      debugPrint('✅ Simple room created with ID: $roomId');
+
+      return roomId;
+    } catch (e) {
+      debugPrint('❌ Error creating simple room: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  /// Verifica se un utente può unirsi a una stanza specifica
+  Future<bool> canJoinSpecificRoom(String roomId, String userId) async {
+    try {
+      final room = await getRoom(roomId).first;
+
+      if (room == null || room.isCompleted) {
+        return false;
+      }
+
+      // Verifica se l'utente è già nella stanza
+      if (room.participants.any((p) => p.userId == userId) || room.hostId == userId) {
+        return false;
+      }
+
+      // Verifica se c'è ancora spazio nella stanza
+      if (room.participants.length >= 3) {
+        return false;
+      }
+
+      // Verifica se l'utente non è già in un'altra stanza attiva
+      return await canCreateRoom(userId);
+    } catch (e) {
+      debugPrint('Error checking if user can join specific room: $e');
+      return false;
+    }
+  }
+
+  /// NUOVO: Ottiene tutte le stanze aperte (non completate e con spazio disponibile)
+  Stream<List<RoomModel>> getAllOpenRooms() {
+    return _db.collection('rooms')
+        .where('isCompleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
+          .where((room) => room.participants.length < 3)
+          .toList();
+    });
+  }
+
+  // =============================================================================
+  // METODI ESISTENTI - MANTENUTI INALTERATI
+  // =============================================================================
 
   /// Aggiorna il punteggio di un utente
   Future<void> updatePoints(String uid, int additionalPoints) async {
@@ -126,41 +512,48 @@ class DatabaseService {
     }
   }
 
-  // Versioni corrette dei metodi con casting appropriato
-
-  /// Verifica se un utente può creare una stanza (non è già in una stanza attiva)
-  Future<bool> canCreateRoom(String userId) async {
+  /// Verifica l'unicità del nickname
+  Future<bool> isNicknameUnique(String nickname) async {
     try {
-      // Controlla se l'utente è host in qualche stanza attiva
-      QuerySnapshot hostRooms = await _db.collection('rooms')
-          .where('hostId', isEqualTo: userId)
-          .where('isCompleted', isEqualTo: false)
+      QuerySnapshot result = await _db.collection('users')
+          .where('nickname', isEqualTo: nickname)
+          .limit(1)
           .get();
-
-      if (hostRooms.docs.isNotEmpty) return false;
-
-      // Controlla se l'utente è partecipante in qualche stanza attiva
-      QuerySnapshot allRooms = await _db.collection('rooms')
-          .where('isCompleted', isEqualTo: false)
-          .get();
-
-      for (var doc in allRooms.docs) {
-        // Cast corretto con controllo null
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data != null) {
-          RoomModel room = RoomModel.fromMap(data, doc.id);
-          if (room.participants.any((p) => p.userId == userId)) {
-            return false;
-          }
-        }
-      }
-
-      return true;
+      return result.docs.isEmpty;
     } catch (e) {
-      debugPrint('Error checking if user can create room: $e');
+      debugPrint('Error checking nickname uniqueness: $e');
       return false;
     }
   }
+
+  /// Ottiene informazioni dettagliate su un ingrediente tramite ID
+  Future<String> getIngredientNameById(String ingredientId) async {
+    try {
+      final ingredient = await getIngredient(ingredientId);
+      return ingredient?.name ?? 'Ingrediente sconosciuto';
+    } catch (e) {
+      debugPrint('Error getting ingredient name: $e');
+      return 'Ingrediente sconosciuto';
+    }
+  }
+
+  /// Ottiene informazioni dettagliate su una ricetta tramite ID
+  Future<String> getRecipeNameById(String recipeId) async {
+    try {
+      final recipe = await getRecipe(recipeId);
+      return recipe?.name ?? 'Ricetta sconosciuta';
+    } catch (e) {
+      debugPrint('Error getting recipe name: $e');
+      return 'Ricetta sconosciuta';
+    }
+  }
+
+
+
+
+
+
+
 
   /// Ottiene statistiche dell'utente
   Future<Map<String, int>> getUserStats(String userId) async {
@@ -376,55 +769,6 @@ class DatabaseService {
     }
   }
 
-
-  /// Verifica se un utente può unirsi a una stanza specifica
-  Future<bool> canJoinSpecificRoom(String roomId, String userId) async {
-    try {
-      final room = await getRoom(roomId).first;
-
-      if (room == null || room.isCompleted) {
-        return false;
-      }
-
-      // Verifica se l'utente è già nella stanza
-      if (room.participants.any((p) => p.userId == userId) || room.hostId == userId) {
-        return false;
-      }
-
-      // Verifica se c'è ancora spazio nella stanza
-      if (room.participants.length >= 3) {
-        return false;
-      }
-
-      // Verifica se l'utente non è già in un'altra stanza attiva
-      return await canCreateRoom(userId);
-    } catch (e) {
-      debugPrint('Error checking if user can join specific room: $e');
-      return false;
-    }
-  }
-
-  /// Ottiene informazioni dettagliate su un ingrediente tramite ID
-  Future<String> getIngredientNameById(String ingredientId) async {
-    try {
-      final ingredient = await getIngredient(ingredientId);
-      return ingredient?.name ?? 'Ingrediente sconosciuto';
-    } catch (e) {
-      debugPrint('Error getting ingredient name: $e');
-      return 'Ingrediente sconosciuto';
-    }
-  }
-
-  /// Ottiene informazioni dettagliate su una ricetta tramite ID
-  Future<String> getRecipeNameById(String recipeId) async {
-    try {
-      final recipe = await getRecipe(recipeId);
-      return recipe?.name ?? 'Ricetta sconosciuta';
-    } catch (e) {
-      debugPrint('Error getting recipe name: $e');
-      return 'Ricetta sconosciuta';
-    }
-  }
 
   /// Ottiene il coaster dell'utente come stream
   Stream<CoasterModel?> getUserCoasterStream(String userId) {
@@ -744,100 +1088,6 @@ class DatabaseService {
       await _db.collection('ingredients').doc(ingredientId).update(data);
     } catch (e) {
       debugPrint('Error updating ingredient: $e');
-      rethrow;
-    }
-  }
-
-  // =============================================================================
-  // ROOM MANAGEMENT
-  // =============================================================================
-
-  /// Crea una nuova stanza
-  Future<String> createRoom(String hostId, String recipeId) async {
-    try {
-      DocumentReference docRef = await _db.collection('rooms').add({
-        'hostId': hostId,
-        'recipeId': recipeId,
-        'participants': [],
-        'createdAt': FieldValue.serverTimestamp(),
-        'isCompleted': false,
-      });
-      return docRef.id;
-    } catch (e) {
-      debugPrint('Error creating room: $e');
-      rethrow;
-    }
-  }
-
-  /// Ottiene una stanza specifica
-  Stream<RoomModel?> getRoom(String roomId) {
-    return _db.collection('rooms').doc(roomId).snapshots().map(
-            (snapshot) => snapshot.exists ? RoomModel.fromMap(snapshot.data()!, snapshot.id) : null
-    );
-  }
-
-  /// Ottiene le stanze di un utente (come host o partecipante)
-  Stream<List<RoomModel>> getUserRooms(String userId) {
-    // Firestore non supporta query array-contains su oggetti complessi
-    // quindi dobbiamo filtrare manualmente
-    return _db.collection('rooms').snapshots().map((snapshot) {
-      return snapshot.docs
-          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
-          .where((room) =>
-      room.hostId == userId ||
-          room.participants.any((p) => p.userId == userId))
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    });
-  }
-
-  /// Aggiunge un partecipante a una stanza
-  Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
-    try {
-      await _db.collection('rooms').doc(roomId).update({
-        'participants': FieldValue.arrayUnion([{
-          'userId': userId,
-          'ingredientId': ingredientId,
-          'hasConfirmed': false,
-        }]),
-      });
-    } catch (e) {
-      debugPrint('Error joining room: $e');
-      rethrow;
-    }
-  }
-
-  /// Completa una stanza e assegna punti
-  Future<void> completeRoom(String roomId) async {
-    try {
-      // Ottieni i dati della stanza
-      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
-      if (!roomDoc.exists) return;
-
-      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
-
-      // Segna la stanza come completata
-      await _db.collection('rooms').doc(roomId).update({
-        'isCompleted': true,
-        'completedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Assegna punti all'host (chi ha la ricetta)
-      await updatePoints(room.hostId, 10);
-
-      // Assegna punti ai partecipanti (chi ha gli ingredienti)
-      for (ParticipantModel participant in room.participants) {
-        await updatePoints(participant.userId, 5);
-      }
-
-      // Registra il completamento
-      await createCompletionRecord(
-        room.hostId,
-        room.recipeId,
-        room.participants.map((p) => p.userId).toList(),
-      );
-    } catch (e) {
-      debugPrint('Error completing room: $e');
       rethrow;
     }
   }

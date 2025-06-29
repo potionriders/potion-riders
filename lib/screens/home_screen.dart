@@ -346,7 +346,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.orange,
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const RoomsListScreen()),
+                    MaterialPageRoute(builder: (_) => const RoomListScreen()),
                   ),
                 ),
                 if (user.currentRecipeId != null)

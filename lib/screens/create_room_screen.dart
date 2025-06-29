@@ -4,7 +4,6 @@ import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/room_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/recipe_model.dart';
-
 import 'package:potion_riders/screens/room_management_screen.dart';
 
 class CreateRoomScreen extends StatefulWidget {
@@ -18,6 +17,8 @@ class CreateRoomScreen extends StatefulWidget {
 
 class _CreateRoomScreenState extends State<CreateRoomScreen> {
   bool _isCreating = false;
+  String? _errorMessage;
+  String? _debugInfo;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +30,15 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Crea Stanza'),
+        elevation: 0,
+        actions: [
+          // PULSANTE DEBUG TEMPORANEO
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: () => _showDebugOptions(uid!, dbService),
+            tooltip: 'Debug Options',
+          ),
+        ],
       ),
       body: StreamBuilder<RecipeModel?>(
         stream: dbService.getRecipe(widget.recipeId).asStream(),
@@ -39,7 +49,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
 
           final recipe = snapshot.data;
           if (recipe == null) {
-            return const Center(child: Text('Ricetta non trovata'));
+            return _buildRecipeNotFound();
           }
 
           return SingleChildScrollView(
@@ -47,57 +57,81 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // PANNELLO DEBUG (TEMPORANEO)
+                if (_debugInfo != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'DEBUG INFO:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(_debugInfo!),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // Carta della ricetta
                 Card(
                   elevation: 4,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: [Colors.purple[100]!, Colors.purple[50]!],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.purple.shade100,
+                                color: Colors.purple[200],
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Icon(
-                                Icons.science,
-                                color: Colors.purple,
-                                size: 32,
+                              child: Icon(
+                                Icons.local_pharmacy,
+                                color: Colors.purple[800],
+                                size: 24,
                               ),
                             ),
-                            const SizedBox(width: 16),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  const Text(
+                                    'La tua ricetta:',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
                                   Text(
                                     recipe.name,
                                     style: const TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.purple.shade50,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      recipe.family,
-                                      style: TextStyle(
-                                        color: Colors.purple.shade800,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                      color: Colors.black87,
                                     ),
                                   ),
                                 ],
@@ -106,221 +140,171 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
+
+                        // Descrizione della ricetta
                         if (recipe.description.isNotEmpty) ...[
-                          Text(
-                            recipe.description,
-                            style: const TextStyle(fontSize: 14),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.8),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.purple[200]!),
+                            ),
+                            child: Text(
+                              recipe.description,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey[700],
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                         ],
+
+                        // Ingredienti richiesti
                         const Text(
-                          'Ingredienti necessari:',
+                          'Ingredienti richiesti:',
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
                             fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        ...recipe.requiredIngredients.map((ingredient) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.check_circle_outline,
-                                size: 18,
-                                color: Theme.of(context).primaryColor,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  ingredient,
-                                  style: const TextStyle(fontSize: 14),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )),
+                        ...recipe.requiredIngredients.map((ingredientId) =>
+                            FutureBuilder<String>(
+                              future: dbService.getIngredientNameById(ingredientId),
+                              builder: (context, ingredientSnapshot) {
+                                final ingredientName = ingredientSnapshot.data ?? 'Caricamento...';
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.fiber_manual_record,
+                                        size: 8,
+                                        color: Colors.purple[400],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        ingredientName,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                        ).toList(),
                       ],
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 24),
 
-                // Informazioni sulla creazione
-                Card(
-                  color: Colors.blue.shade50,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
+                // Messaggio di errore
+                if (_errorMessage != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red[200]!),
+                    ),
+                    child: Row(
                       children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.blue.shade700,
-                          size: 32,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Stai per creare una stanza',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Gli altri giocatori potranno unirsi alla tua stanza scansionando '
-                              'il QR code o inserendo l\'ID stanza. Avrai bisogno di '
-                              '${recipe.requiredIngredients.length} giocatori con gli ingredienti giusti.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.blue.shade700,
+                        Icon(Icons.error_outline, color: Colors.red[600]),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(
+                              color: Colors.red[700],
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                ],
 
-                // Benefici del completamento
-                Card(
-                  color: Colors.green.shade50,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.emoji_events,
-                          color: Colors.green.shade700,
-                          size: 32,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Ricompense',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green.shade800,
+                // Pulsanti per creare la stanza
+                Row(
+                  children: [
+                    // Pulsante normale
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isCreating || uid == null
+                            ? null
+                            : () => _createRoom(context, uid, recipe, roomService, dbService, false),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                          elevation: 4,
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        child: _isCreating
+                            ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Column(
-                              children: [
-                                Text(
-                                  '10',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green.shade800,
-                                  ),
-                                ),
-                                Text(
-                                  'Punti\n(Host)',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.green.shade700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
                             ),
-                            Container(
-                              height: 40,
-                              width: 1,
-                              color: Colors.green.shade300,
+                            SizedBox(width: 12),
+                            Text(
+                              'Creazione...',
+                              style: TextStyle(fontSize: 16),
                             ),
-                            Column(
-                              children: [
-                                Text(
-                                  '5',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green.shade800,
-                                  ),
-                                ),
-                                Text(
-                                  'Punti\n(Ingredienti)',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.green.shade700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+                          ],
+                        )
+                            : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_circle_outline, size: 24),
+                            SizedBox(width: 8),
+                            Text(
+                              'Crea Stanza',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Pulsante di creazione
-                _isCreating
-                    ? Container(
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Center(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                    const SizedBox(width: 8),
+                    // Pulsante debug
+                    ElevatedButton(
+                      onPressed: _isCreating || uid == null
+                          ? null
+                          : () => _createRoom(context, uid, recipe, roomService, dbService, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange[600],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        SizedBox(width: 12),
-                        Text('Creazione stanza...'),
-                      ],
+                      ),
+                      child: const Icon(Icons.bug_report),
                     ),
-                  ),
-                )
-                    : ElevatedButton.icon(
-                  onPressed: uid == null ? null : () => _createRoom(roomService, uid),
-                  icon: const Icon(Icons.add_circle_outline, size: 24),
-                  label: const Text(
-                    'Crea Stanza',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    minimumSize: const Size.fromHeight(56),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Pulsante annulla
-                OutlinedButton.icon(
-                  onPressed: _isCreating ? null : () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Annulla'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    minimumSize: const Size.fromHeight(56),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -330,36 +314,187 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     );
   }
 
-  Future<void> _createRoom(RoomService roomService, String uid) async {
-    setState(() => _isCreating = true);
+  Widget _buildRecipeNotFound() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.red.shade300,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Ricetta non trovata',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'La ricetta richiesta non esiste o non è più disponibile.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Torna Indietro'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDebugOptions(String uid, DatabaseService dbService) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Debug Options'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.sync),
+              title: const Text('Sync User Rooms'),
+              subtitle: const Text('Sincronizza riferimenti stanze'),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  await dbService.syncUserRooms(uid);
+                  setState(() {
+                    _debugInfo = 'Sincronizzazione completata';
+                  });
+                } catch (e) {
+                  setState(() {
+                    _debugInfo = 'Errore sincronizzazione: $e';
+                  });
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info),
+              title: const Text('Check User Status'),
+              subtitle: const Text('Verifica stato utente'),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  final user = await dbService.getUser(uid).first;
+                  setState(() {
+                    _debugInfo = 'User rooms: ${user?.rooms}\nCan create: ${user?.rooms.isEmpty}';
+                  });
+                } catch (e) {
+                  setState(() {
+                    _debugInfo = 'Errore verifica: $e';
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createRoom(
+      BuildContext context,
+      String uid,
+      RecipeModel recipe,
+      RoomService roomService,
+      DatabaseService dbService,
+      bool useSimpleMethod,
+      ) async {
+    setState(() {
+      _isCreating = true;
+      _errorMessage = null;
+      _debugInfo = null;
+    });
 
     try {
-      final roomId = await roomService.createRoom(uid, widget.recipeId);
+      String roomId;
+
+      if (useSimpleMethod) {
+        setState(() {
+          _debugInfo = 'Usando metodo semplificato...';
+        });
+
+        // USA IL METODO SEMPLIFICATO PER DEBUG
+        roomId = await dbService.createRoomSimple(uid, recipe.id);
+
+        // Aggiungi manualmente alla lista dell'utente
+        try {
+          await dbService.addRoomToUser(uid, roomId);
+          setState(() {
+            _debugInfo = 'Stanza creata E aggiunta all\'utente!';
+          });
+        } catch (e) {
+          setState(() {
+            _debugInfo = 'Stanza creata ma NON aggiunta all\'utente: $e';
+          });
+        }
+      } else {
+        // Verifica prima se l'utente può creare una stanza
+        final canCreate = await dbService.canCreateRoom(uid);
+        if (!canCreate) {
+          setState(() {
+            _errorMessage = 'Sei già in una stanza attiva. Completa o abbandona la stanza corrente prima di crearne una nuova.';
+          });
+          return;
+        }
+
+        // USA IL METODO NORMALE
+        roomId = await dbService.createRoom(uid, recipe.id);
+      }
+
+      // IMPORTANTE: Attendi un momento per assicurarti che la stanza sia sincronizzata
+      await Future.delayed(const Duration(milliseconds: 1000));
 
       if (mounted) {
-        // Naviga alla nuova schermata di gestione migliorata
+        // Naviga alla gestione della stanza
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => RoomManagementScreen(
-              roomId: roomId,
-              recipeId: widget.recipeId,
+            builder: (context) => RoomManagementScreen(roomId: roomId),
+          ),
+        );
+
+        // Mostra messaggio di successo
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Stanza creata! ID: ${roomId.substring(0, 8)}...'),
+              ],
             ),
+            backgroundColor: Colors.green[600],
+            duration: const Duration(seconds: 3),
           ),
         );
       }
     } catch (e) {
+      debugPrint('Error creating room: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Errore durante la creazione: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() {
+          _errorMessage = 'Errore nella creazione della stanza: ${e.toString()}';
+          _debugInfo = 'Dettagli errore: $e';
+        });
       }
     } finally {
       if (mounted) {
-        setState(() => _isCreating = false);
+        setState(() {
+          _isCreating = false;
+        });
       }
     }
   }

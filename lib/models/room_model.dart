@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class RoomModel {
   final String id;
   final String recipeId;
@@ -25,19 +27,58 @@ class RoomModel {
     };
   }
 
+  // SOLUZIONE MINIMALE: Sostituisci solo il metodo fromMap nel tuo RoomModel esistente
+
   factory RoomModel.fromMap(Map<String, dynamic> map, String documentId) {
-    return RoomModel(
-      id: documentId,
-      recipeId: map['recipeId'] ?? '',
-      hostId: map['hostId'] ?? '',
-      participants: (map['participants'] as List?)
-              ?.map((p) => ParticipantModel.fromMap(p))
-              .toList() ??
-          [],
-      createdAt:
-          DateTime.parse(map['createdAt'] ?? DateTime.now().toIso8601String()),
-      isCompleted: map['isCompleted'] ?? false,
-    );
+    try {
+      // GESTIONE SICURA DEL TIMESTAMP - QUESTO È IL FIX PRINCIPALE
+      DateTime createdAt;
+      final createdAtField = map['createdAt'];
+
+      if (createdAtField is Timestamp) {
+        createdAt = createdAtField.toDate();
+      } else if (createdAtField is DateTime) {
+        createdAt = createdAtField;
+      } else if (createdAtField == null) {
+        // Se il timestamp è ancora pending, usa la data corrente
+        print('⚠️ CreatedAt is null/pending, using current time for room $documentId');
+        createdAt = DateTime.now();
+      } else {
+        // Fallback per altri formati
+        print('⚠️ Unknown createdAt format: ${createdAtField.runtimeType} for room $documentId');
+        createdAt = DateTime.now();
+      }
+
+      // GESTIONE SICURA PARTECIPANTI (mantieni la tua logica esistente)
+      List<ParticipantModel> participants = [];
+      if (map['participants'] != null) {
+        participants = (map['participants'] as List)
+            .map((participantMap) => ParticipantModel.fromMap(participantMap))
+            .toList();
+      }
+
+      return RoomModel(
+        id: documentId,
+        hostId: map['hostId'] ?? '',
+        recipeId: map['recipeId'] ?? '',
+        participants: participants,
+        createdAt: createdAt, // USA IL TIMESTAMP SICURO
+        isCompleted: map['isCompleted'] ?? false,
+      );
+    } catch (e) {
+      print('❌ Error parsing RoomModel: $e');
+      print('📊 Problematic data: $map');
+
+      // FALLBACK SICURO
+      return RoomModel(
+        id: documentId,
+        hostId: map['hostId'] ?? 'error',
+        recipeId: map['recipeId'] ?? 'error',
+        participants: [],
+        createdAt: DateTime.now(),
+        isCompleted: false,
+      );
+    }
   }
 
   bool isReadyToComplete() {
