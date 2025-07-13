@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -23,6 +24,852 @@ class DatabaseService {
       return data['role'] == 'admin';
     }
     return false;
+  }
+
+  // NUOVO: Conferma partecipazione di un ingrediente in una stanza
+  Future<void> confirmParticipation(String roomId, String userId) async {
+    try {
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        throw Exception('Stanza non trovata');
+      }
+
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      List<dynamic> participants = roomData['participants'] ?? [];
+
+      // Trova e aggiorna il partecipante
+      bool participantFound = false;
+      for (int i = 0; i < participants.length; i++) {
+        if (participants[i]['userId'] == userId) {
+          participants[i]['hasConfirmed'] = true;
+          participantFound = true;
+          break;
+        }
+      }
+
+      if (!participantFound) {
+        throw Exception('Partecipante non trovato nella stanza');
+      }
+
+      await _db.collection('rooms').doc(roomId).update({
+        'participants': participants,
+      });
+
+      debugPrint('✅ Participation confirmed for user $userId in room $roomId');
+    } catch (e) {
+      debugPrint('❌ Error confirming participation: $e');
+      rethrow;
+    }
+  }
+
+// NUOVO: Ottiene le stanze dove l'utente partecipa come ingrediente
+  Stream<List<RoomModel>> getUserParticipatingRooms(String userId) {
+    return _db.collection('rooms')
+        .where('isCompleted', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) {
+      List<RoomModel> participatingRooms = [];
+
+      for (var doc in snapshot.docs) {
+        final roomData = doc.data();
+        final participants = roomData['participants'] as List<dynamic>? ?? [];
+
+        // Controlla se l'utente è partecipante (non host)
+        bool isParticipant = participants.any((p) =>
+        p is Map<String, dynamic> &&
+            p['userId'] == userId &&
+            roomData['hostId'] != userId
+        );
+
+        if (isParticipant) {
+          participatingRooms.add(RoomModel.fromMap(roomData, doc.id));
+        }
+      }
+
+      return participatingRooms;
+    });
+  }
+
+// MODIFICATO: Aggiorna il metodo per gestire le stanze dell'utente
+  Stream<List<RoomModel>> getUserRooms(String userId) {
+    return _db.collection('rooms')
+        .where('hostId', isEqualTo: userId)
+        .where('isCompleted', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
+          .toList();
+    });
+  }
+
+  /// Ottiene tutte le stanze dell'utente (create + partecipazioni)
+  Stream<Map<String, List<RoomModel>>> getAllUserRooms(String userId) {
+    late StreamController<Map<String, List<RoomModel>>> controller;
+
+    List<RoomModel> hostingRooms = [];
+    List<RoomModel> participatingRooms = [];
+
+    StreamSubscription? hostingSubscription;
+    StreamSubscription? participatingSubscription;
+
+    void updateResult() {
+      if (!controller.isClosed) {
+        controller.add({
+          'hosting': hostingRooms,
+          'participating': participatingRooms,
+        });
+      }
+    }
+
+    controller = StreamController<Map<String, List<RoomModel>>>(
+      onListen: () {
+        hostingSubscription = getUserRooms(userId).listen((rooms) {
+          hostingRooms = rooms;
+          updateResult();
+        });
+
+        participatingSubscription = getUserParticipatingRooms(userId).listen((rooms) {
+          participatingRooms = rooms;
+          updateResult();
+        });
+      },
+      onCancel: () {
+        hostingSubscription?.cancel();
+        participatingSubscription?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+// MODIFICATO: Controlla se la stanza è pronta per essere completata
+  Stream<bool> isRoomReadyToComplete(String roomId) {
+    return _db.collection('rooms').doc(roomId).snapshots().map((snapshot) {
+      if (!snapshot.exists) return false;
+
+      RoomModel room = RoomModel.fromMap(snapshot.data()!, snapshot.id);
+      return room.isReadyToComplete();
+    });
+  }
+
+// NUOVO: Ottiene il numero di ingredienti confermati in una stanza
+  Stream<int> getConfirmedIngredientsCount(String roomId) {
+    return _db.collection('rooms').doc(roomId).snapshots().map((snapshot) {
+      if (!snapshot.exists) return 0;
+
+      RoomModel room = RoomModel.fromMap(snapshot.data()!, snapshot.id);
+      return room.getConfirmedIngredientsCount();
+    });
+  }
+
+  Future<Map<String, dynamic>> validateIngredientMatch(String roomId, String userId) async {
+    try {
+      final result = {
+        'canJoin': false,
+        'reason': '',
+        'userIngredient': '',
+        'requiredIngredients': <String>[],
+        'presentIngredients': <String>[],
+        'missingIngredients': <String>[],
+        'details': <String, dynamic>{},
+      };
+
+      debugPrint('🔍 Validating ingredient match for user $userId in room $roomId');
+
+      // Step 1: Controlla che la stanza esista
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        result['reason'] = 'Stanza non trovata';
+        return result;
+      }
+
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+
+      // Step 2: Controlli base della stanza
+      if (roomData['isCompleted'] == true) {
+        result['reason'] = 'La stanza è già completata';
+        return result;
+      }
+
+      if (roomData['hostId'] == userId) {
+        result['reason'] = 'Sei il creatore della stanza';
+        return result;
+      }
+
+      List<dynamic> participants = roomData['participants'] ?? [];
+      if (participants.length >= 3) {
+        result['reason'] = 'Stanza piena (massimo 3 partecipanti)';
+        return result;
+      }
+
+      bool alreadyParticipant = participants.any((p) =>
+      p is Map<String, dynamic> && p['userId'] == userId);
+      if (alreadyParticipant) {
+        result['reason'] = 'Sei già un partecipante';
+        return result;
+      }
+
+      // Step 3: Controlla l'utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        result['reason'] = 'Utente non trovato';
+        return result;
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      if (userData['currentIngredientId'] == null) {
+        result['reason'] = 'Ingrediente non assegnato';
+        return result;
+      }
+
+      final userIngredient = userData['currentIngredientId'] as String;
+      result['userIngredient'] = userIngredient;
+
+      List<dynamic> userRooms = userData['rooms'] ?? [];
+      if (userRooms.isNotEmpty) {
+        result['reason'] = 'Utente già in ${userRooms.length} stanza/e attiva/e';
+        return result;
+      }
+
+      // Step 4: Ottieni la ricetta e controlla gli ingredienti
+      final recipeId = roomData['recipeId'] as String;
+      final recipeDoc = await _db.collection('recipes').doc(recipeId).get();
+
+      if (!recipeDoc.exists) {
+        result['reason'] = 'Ricetta non trovata';
+        return result;
+      }
+
+      final recipeData = recipeDoc.data() as Map<String, dynamic>;
+      final requiredIngredients = List<String>.from(recipeData['ingredients'] ?? []);
+      result['requiredIngredients'] = requiredIngredients;
+
+      debugPrint('📋 Required ingredients: $requiredIngredients');
+      debugPrint('👤 User ingredient: $userIngredient');
+
+      // Step 5: Controlla se l'ingrediente dell'utente è richiesto
+      if (!requiredIngredients.contains(userIngredient)) {
+        result['reason'] = 'Il tuo ingrediente ($userIngredient) non è richiesto da questa ricetta';
+        return result;
+      }
+
+      // Step 6: Controlla quali ingredienti sono già presenti
+      Set<String> presentIngredients = {};
+      for (var participant in participants) {
+        if (participant is Map<String, dynamic>) {
+          presentIngredients.add(participant['ingredientId'] as String);
+        }
+      }
+
+      result['presentIngredients'] = presentIngredients.toList();
+      result['missingIngredients'] = requiredIngredients
+          .where((ingredient) => !presentIngredients.contains(ingredient))
+          .toList();
+
+      debugPrint('✅ Present ingredients: ${presentIngredients.toList()}');
+      debugPrint('❌ Missing ingredients: ${result['missingIngredients']}');
+
+      // Step 7: Controlla se l'ingrediente è già presente
+      if (presentIngredients.contains(userIngredient)) {
+        result['reason'] = 'Il tuo ingrediente ($userIngredient) è già presente nella stanza';
+        return result;
+      }
+
+      // Step 8: TUTTO OK - L'utente può unirsi!
+      result['canJoin'] = true;
+      result['reason'] = 'Match perfetto! Il tuo ingrediente è necessario e mancante.';
+
+      debugPrint('🎉 Validation passed: User can join room');
+      return result;
+
+    } catch (e) {
+      debugPrint('❌ Error validating ingredient match: $e');
+      return {
+        'canJoin': false,
+        'reason': 'Errore durante la validazione: $e',
+        'userIngredient': '',
+        'requiredIngredients': <String>[],
+        'presentIngredients': <String>[],
+        'missingIngredients': <String>[],
+        'details': {'error': e.toString()},
+      };
+    }
+  }
+
+  /// Versione migliorata di joinRoom con validazione ingredienti
+  Future<void> joinRoomWithIngredientValidation(String roomId, String userId, String ingredientId) async {
+    try {
+      debugPrint('🚀 Starting validated join room process...');
+      debugPrint('   Room ID: $roomId');
+      debugPrint('   User ID: $userId');
+      debugPrint('   Ingredient: $ingredientId');
+
+      // Step 1: Validazione completa con matching ingredienti
+      final validation = await validateIngredientMatch(roomId, userId);
+
+      if (!validation['canJoin']) {
+        throw Exception(validation['reason']);
+      }
+
+      // Step 2: Double-check che l'ingrediente fornito corrisponda a quello dell'utente
+      if (validation['userIngredient'] != ingredientId) {
+        throw Exception('L\'ingrediente fornito ($ingredientId) non corrisponde a quello assegnato (${validation['userIngredient']})');
+      }
+
+      debugPrint('✅ Validation passed, proceeding with join...');
+
+      // Step 3: Esegui il join utilizzando una transazione per sicurezza
+      await _db.runTransaction((transaction) async {
+        // Rileggi i dati per essere sicuri che non siano cambiati
+        final roomRef = _db.collection('rooms').doc(roomId);
+        final userRef = _db.collection('users').doc(userId);
+
+        final roomSnapshot = await transaction.get(roomRef);
+        final userSnapshot = await transaction.get(userRef);
+
+        if (!roomSnapshot.exists || !userSnapshot.exists) {
+          throw Exception('Stanza o utente non trovati durante la transazione');
+        }
+
+        final roomData = roomSnapshot.data() as Map<String, dynamic>;
+        final userData = userSnapshot.data() as Map<String, dynamic>;
+
+        // Controlli last-minute
+        List<dynamic> participants = roomData['participants'] ?? [];
+        if (participants.length >= 3) {
+          throw Exception('La stanza si è riempita mentre processavamo la richiesta');
+        }
+
+        // Controlla ancora che l'ingrediente non sia già presente
+        bool ingredientAlreadyPresent = participants.any((p) =>
+        p is Map<String, dynamic> && p['ingredientId'] == ingredientId);
+        if (ingredientAlreadyPresent) {
+          throw Exception('L\'ingrediente è stato aggiunto da qualcun altro mentre processavamo la richiesta');
+        }
+
+        // Aggiorna la stanza
+        transaction.update(roomRef, {
+          'participants': FieldValue.arrayUnion([{
+            'userId': userId,
+            'ingredientId': ingredientId,
+            'hasConfirmed': false,
+            'joinedAt': FieldValue.serverTimestamp(),
+          }]),
+        });
+
+        // Aggiorna l'utente
+        List<dynamic> userRooms = List.from(userData['rooms'] ?? []);
+        if (!userRooms.contains(roomId)) {
+          userRooms.add(roomId);
+        }
+
+        transaction.update(userRef, {
+          'rooms': userRooms,
+        });
+      });
+
+      debugPrint('🎉 User successfully joined room with ingredient validation!');
+
+    } catch (e) {
+      debugPrint('❌ Error in joinRoomWithIngredientValidation: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> completeRoomAndFreeSlots(String roomId) async {
+    try {
+      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) return;
+
+      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+
+      // Segna la stanza come completata
+      await _db.collection('rooms').doc(roomId).update({
+        'isCompleted': true,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Assegna punti all'host (chi ha la pozione)
+      await updatePoints(room.hostId, 10);
+
+      // Assegna punti ai partecipanti (chi ha gli ingredienti)
+      for (ParticipantModel participant in room.participants) {
+        await updatePoints(participant.userId, 5);
+      }
+
+      // NUOVO: Consuma il sottobicchiere dell'host (chi ha la pozione)
+      await consumeUserCoaster(room.hostId);
+
+      // Registra il completamento
+      await createCompletionRecord(
+        room.hostId,
+        room.recipeId,
+        room.participants.map((p) => p.userId).toList(),
+      );
+
+      // Libera gli slot di tutti i partecipanti (incluso l'host)
+      List<String> allUserIds = [room.hostId];
+      allUserIds.addAll(room.participants.map((p) => p.userId));
+      await freeUserSlots(allUserIds);
+
+      // Assegna nuovi elementi casuali solo ai partecipanti (non all'host che ha il coaster consumato)
+      for (String userId in room.participants.map((p) => p.userId)) {
+        await assignRandomGameElement(userId);
+      }
+    } catch (e) {
+      debugPrint('Error completing room and freeing slots: $e');
+      rethrow;
+    }
+  }
+
+  /// NUOVO: Consuma il sottobicchiere di un utente
+  Future<void> consumeUserCoaster(String userId) async {
+    try {
+      // Trova il coaster dell'utente
+      QuerySnapshot coasterQuery = await _db.collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .where('isConsumed', isEqualTo: false)
+          .limit(1)
+          .get();
+
+      if (coasterQuery.docs.isNotEmpty) {
+        String coasterId = coasterQuery.docs.first.id;
+
+        // Marca come consumato
+        await _db.collection('coasters').doc(coasterId).update({
+          'isConsumed': true,
+          'consumedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Rimuovi l'elemento corrente dall'utente
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': null,
+          'currentIngredientId': null,
+        });
+      }
+    } catch (e) {
+      debugPrint('Error consuming user coaster: $e');
+      rethrow;
+    }
+  }
+
+  /// NUOVO: Riconsegna un sottobicchiere consumato e assegna un nuovo sottobicchiere
+  Future<bool> returnConsumedCoasterAndGetNew(String userId) async {
+    try {
+      // Verifica che l'utente abbia un coaster consumato
+      QuerySnapshot consumedQuery = await _db.collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .where('isConsumed', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (consumedQuery.docs.isEmpty) {
+        debugPrint('Nessun sottobicchiere consumato trovato per l\'utente');
+        return false;
+      }
+
+      String oldCoasterId = consumedQuery.docs.first.id;
+
+      // "Riconsegna" il vecchio coaster (lo disconnettiamo dall'utente)
+      await _db.collection('coasters').doc(oldCoasterId).update({
+        'claimedByUserId': null,
+        'usedAs': null,
+      });
+
+      // Trova un nuovo coaster disponibile
+      QuerySnapshot availableQuery = await _db.collection('coasters')
+          .where('isActive', isEqualTo: true)
+          .where('claimedByUserId', isEqualTo: null)
+          .where('isConsumed', isEqualTo: false)
+          .limit(1)
+          .get();
+
+      if (availableQuery.docs.isEmpty) {
+        debugPrint('Nessun sottobicchiere disponibile per la redistribuzione');
+        return false;
+      }
+
+      String newCoasterId = availableQuery.docs.first.id;
+
+      // Assegna il nuovo coaster all'utente
+      await _db.collection('coasters').doc(newCoasterId).update({
+        'claimedByUserId': userId,
+      });
+
+      // Reset dello stato utente
+      await _db.collection('users').doc(userId).update({
+        'currentRecipeId': null,
+        'currentIngredientId': null,
+      });
+
+      return true;
+    } catch (e) {
+      debugPrint('Error returning coaster and getting new: $e');
+      return false;
+    }
+  }
+
+  /// NUOVO: Controlla se un utente può ottenere un nuovo sottobicchiere
+  Future<bool> canGetNewCoaster(String userId) async {
+    try {
+      // Verifica che abbia un coaster consumato
+      QuerySnapshot consumedQuery = await _db.collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .where('isConsumed', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      return consumedQuery.docs.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking if user can get new coaster: $e');
+      return false;
+    }
+  }
+
+  /// Ottieni le stanze compatibili per un utente basate sul suo ingrediente
+  Future<List<Map<String, dynamic>>> getCompatibleRoomsForUser(String userId) async {
+    try {
+      debugPrint('🔍 Finding compatible rooms for user: $userId');
+
+      // Ottieni l'ingrediente dell'utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw Exception('Utente non trovato');
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final userIngredient = userData['currentIngredientId'] as String?;
+
+      if (userIngredient == null) {
+        return []; // Nessun ingrediente = nessuna stanza compatibile
+      }
+
+      debugPrint('👤 User ingredient: $userIngredient');
+
+      // Ottieni tutte le stanze attive
+      final roomsSnapshot = await _db.collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      List<Map<String, dynamic>> compatibleRooms = [];
+
+      for (var roomDoc in roomsSnapshot.docs) {
+        final roomData = roomDoc.data();
+        final roomId = roomDoc.id;
+
+        // Salta se l'utente è l'host
+        if (roomData['hostId'] == userId) continue;
+
+        // Salta se la stanza è piena
+        List<dynamic> participants = roomData['participants'] ?? [];
+        if (participants.length >= 3) continue;
+
+        // Salta se l'utente è già partecipante
+        bool isParticipant = participants.any((p) =>
+        p is Map<String, dynamic> && p['userId'] == userId);
+        if (isParticipant) continue;
+
+        // Controlla la compatibilità degli ingredienti
+        final validation = await validateIngredientMatch(roomId, userId);
+
+        if (validation['canJoin']) {
+          compatibleRooms.add({
+            'roomId': roomId,
+            'room': roomData,
+            'validation': validation,
+            'matchScore': _calculateMatchScore(validation),
+          });
+        }
+      }
+
+      // Ordina per score di compatibilità
+      compatibleRooms.sort((a, b) => b['matchScore'].compareTo(a['matchScore']));
+
+      debugPrint('✅ Found ${compatibleRooms.length} compatible rooms');
+      return compatibleRooms;
+
+    } catch (e) {
+      debugPrint('❌ Error finding compatible rooms: $e');
+      return [];
+    }
+  }
+
+  /// Calcola un punteggio di compatibilità per una stanza
+  int _calculateMatchScore(Map<String, dynamic> validation) {
+    int score = 0;
+
+    // Punti base se può unirsi
+    if (validation['canJoin']) score += 100;
+
+    // Punti bonus in base a quanti ingredienti mancano ancora
+    List<String> missingIngredients = List<String>.from(validation['missingIngredients'] ?? []);
+    score += missingIngredients.length * 10; // Più ingredienti mancano, più interessante è la stanza
+
+    // Punti bonus se la stanza ha già alcuni partecipanti (più vicina al completamento)
+    List<String> presentIngredients = List<String>.from(validation['presentIngredients'] ?? []);
+    score += presentIngredients.length * 5;
+
+    return score;
+  }
+
+  /// Ottieni statistiche dettagliate di una ricetta
+  Future<Map<String, dynamic>> getRecipeWithStats(String recipeId) async {
+    try {
+      final recipeDoc = await _db.collection('recipes').doc(recipeId).get();
+      if (!recipeDoc.exists) {
+        throw Exception('Ricetta non trovata');
+      }
+
+      final recipeData = recipeDoc.data() as Map<String, dynamic>;
+
+      // Conta quante volte è stata completata
+      final completionsSnapshot = await _db.collection('completions')
+          .where('recipeId', isEqualTo: recipeId)
+          .get();
+
+      // Conta le stanze attive che usano questa ricetta
+      final activeRoomsSnapshot = await _db.collection('rooms')
+          .where('recipeId', isEqualTo: recipeId)
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      return {
+        'recipe': recipeData,
+        'completionCount': completionsSnapshot.docs.length,
+        'activeRoomsCount': activeRoomsSnapshot.docs.length,
+        'ingredients': List<String>.from(recipeData['ingredients'] ?? []),
+        'popularity': completionsSnapshot.docs.length + (activeRoomsSnapshot.docs.length * 2),
+      };
+
+    } catch (e) {
+      debugPrint('❌ Error getting recipe stats: $e');
+      rethrow;
+    }
+  }
+
+  /// Debug method per vedere tutte le informazioni di matching per un utente
+  Future<Map<String, dynamic>> debugUserMatching(String userId) async {
+    try {
+      final result = <String, dynamic>{
+        'timestamp': DateTime.now().toIso8601String(),
+        'userId': userId,
+      };
+
+      // Informazioni utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        final userData = userDoc.data() as Map<String, dynamic>;
+        result['user'] = {
+          'exists': true,
+          'nickname': userData['nickname'],
+          'currentIngredientId': userData['currentIngredientId'],
+          'rooms': userData['rooms'] ?? [],
+          'canPlay': userData['currentIngredientId'] != null && (userData['rooms'] as List? ?? []).isEmpty,
+        };
+
+        // Se l'utente può giocare, trova stanze compatibili
+        if (result['user']['canPlay']) {
+          result['compatibleRooms'] = await getCompatibleRoomsForUser(userId);
+        }
+      } else {
+        result['user'] = {'exists': false};
+      }
+
+      // Statistiche generali
+      final allRoomsSnapshot = await _db.collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      result['systemStats'] = {
+        'totalActiveRooms': allRoomsSnapshot.docs.length,
+        'availableRooms': allRoomsSnapshot.docs.where((doc) {
+          final data = doc.data();
+          List<dynamic> participants = data['participants'] ?? [];
+          return participants.length < 3;
+        }).length,
+      };
+
+      return result;
+
+    } catch (e) {
+      debugPrint('❌ Error in debug user matching: $e');
+      return {
+        'error': e.toString(),
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+    }
+  }
+
+  /// Libera un utente da tutte le stanze attive in modo sicuro
+  Future<void> safelyRemoveUserFromAllRooms(String userId) async {
+    try {
+      debugPrint('🧹 Safely removing user $userId from all rooms...');
+
+      await _db.runTransaction((transaction) async {
+        // Trova tutte le stanze attive
+        final roomsSnapshot = await _db.collection('rooms')
+            .where('isCompleted', isEqualTo: false)
+            .get();
+
+        for (var roomDoc in roomsSnapshot.docs) {
+          final roomData = roomDoc.data();
+          List<dynamic> participants = List.from(roomData['participants'] ?? []);
+
+          // Rimuovi l'utente se presente
+          bool userRemoved = false;
+          participants.removeWhere((participant) {
+            if (participant is Map<String, dynamic> &&
+                participant['userId'] == userId) {
+              userRemoved = true;
+              return true;
+            }
+            return false;
+          });
+
+          // Se l'utente era presente, aggiorna la stanza
+          if (userRemoved) {
+            transaction.update(roomDoc.reference, {
+              'participants': participants,
+            });
+            debugPrint('🗑️ Removed user from room: ${roomDoc.id}');
+          }
+        }
+
+        // Aggiorna l'utente
+        final userRef = _db.collection('users').doc(userId);
+        transaction.update(userRef, {
+          'rooms': [],
+          'currentRecipeId': null,
+        });
+      });
+
+      debugPrint('✅ User safely removed from all rooms');
+
+    } catch (e) {
+      debugPrint('❌ Error safely removing user from rooms: $e');
+      rethrow;
+    }
+  }
+
+  // Usa sottobicchiere (come pozione o ingrediente) - versione aggiornata
+  Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
+
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+
+      // AGGIORNATO: Controlla anche che non sia consumato
+      if (!coaster.isActive || coaster.claimedByUserId != userId || coaster.isConsumed) {
+        return false; // Non attivo, non reclamato da questo utente, o già consumato
+      }
+
+      // Aggiorna il coaster con l'uso scelto
+      await _db.collection('coasters').doc(coasterId).update({
+        'usedAs': useAs,
+      });
+
+      // Aggiorna l'utente con l'elemento scelto
+      if (useAs == 'recipe') {
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': coaster.recipeId,
+          'currentIngredientId': null,
+        });
+      } else if (useAs == 'ingredient') {
+        await _db.collection('users').doc(userId).update({
+          'currentIngredientId': coaster.ingredientId,
+          'currentRecipeId': null,
+        });
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error using coaster: $e');
+      return false;
+    }
+  }
+
+  /// Cambia l'uso del sottobicchiere tra pozione e ingrediente - versione aggiornata
+  Future<bool> switchCoasterUsage(String userId, String coasterId, bool useAsRecipe) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      if (!doc.exists) return false;
+
+      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+
+      // AGGIORNATO: Verifica che il coaster appartenga all'utente e non sia consumato
+      if (coaster.claimedByUserId != userId || coaster.isConsumed) {
+        return false;
+      }
+
+      // Aggiorna l'uso del coaster
+      String newUsage = useAsRecipe ? 'recipe' : 'ingredient';
+
+      await _db.collection('coasters').doc(coasterId).update({
+        'usedAs': newUsage,
+      });
+
+      // Aggiorna l'utente con l'elemento scelto
+      if (useAsRecipe) {
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': coaster.recipeId,
+          'currentIngredientId': null,
+        });
+      } else {
+        await _db.collection('users').doc(userId).update({
+          'currentIngredientId': coaster.ingredientId,
+          'currentRecipeId': null,
+        });
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error switching coaster usage: $e');
+      return false;
+    }
+  }
+
+  /// Ottiene il coaster dell'utente come stream - versione aggiornata
+  Stream<CoasterModel?> getUserCoasterStream(String userId) {
+    return _db.collection('coasters')
+        .where('claimedByUserId', isEqualTo: userId)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) return null;
+      return CoasterModel.fromMap(
+          snapshot.docs.first.data(),
+          snapshot.docs.first.id
+      );
+    });
+  }
+
+  /// Ottiene il coaster dell'utente - versione aggiornata
+  Future<CoasterModel?> getUserCoaster(String userId) async {
+    try {
+      final snapshot = await _db.collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) return null;
+
+      return CoasterModel.fromMap(snapshot.docs.first.data(), snapshot.docs.first.id);
+    } catch (e) {
+      debugPrint('Errore nel recupero del coaster: $e');
+      return null;
+    }
+  }
+
+// =============================================================================
+// OVERRIDE DEL METODO JOINROOM ESISTENTE
+// =============================================================================
+
+  /// Sovrascrive il metodo joinRoom esistente con la versione validata
+  @override
+  Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
+    await joinRoomWithIngredientValidation(roomId, userId, ingredientId);
   }
 
   Future<bool> isItemClaimed(String itemId) async {
@@ -80,6 +927,124 @@ class DatabaseService {
     }
   }
 
+  // AGGIUNGI/SOSTITUISCI queste funzioni nel file database_service.dart
+
+  /// SOSTITUISCI la funzione createCoasterWithId esistente
+  Future<String> createCoasterWithId(String coasterId, String recipeId, String ingredientId) async {
+    try {
+      await _db.collection('coasters').doc(coasterId).set({
+        'recipeId': recipeId,
+        'ingredientId': ingredientId,
+        'isActive': true,
+        'claimedByUserId': null,
+        'usedAs': null,
+        'isConsumed': false, // NUOVO CAMPO
+        'consumedAt': null,  // NUOVO CAMPO
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      return coasterId;
+    } catch (e) {
+      debugPrint('Error creating coaster with specific ID: $e');
+      rethrow;
+    }
+  }
+
+  /// SOSTITUISCI la funzione generateTestCoasters esistente
+  Future<void> generateTestCoasters(String uid, int count) async {
+    bool isAdmin = await isUserAdmin(uid);
+    if (!isAdmin) {
+      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+    }
+
+    // Ottieni liste di ricette e ingredienti
+    QuerySnapshot recipesSnapshot = await _db.collection('recipes').limit(60).get();
+    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').limit(60).get();
+
+    List<String> recipeIds = recipesSnapshot.docs.map((doc) => doc.id).toList();
+    List<String> ingredientIds = ingredientsSnapshot.docs.map((doc) => doc.id).toList();
+
+    if (recipeIds.isEmpty || ingredientIds.isEmpty) {
+      throw Exception('Non ci sono ricette o ingredienti nel database');
+    }
+
+    // Crea batch per operazioni multiple
+    WriteBatch batch = _db.batch();
+
+    for (int i = 0; i < count; i++) {
+      // Genera un ID personalizzato per ogni coaster
+      String coasterId = _generateShortId();
+
+      // Verifica che non esista già
+      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
+      int attempts = 0;
+      while (existing.exists && attempts < 10) {
+        coasterId = _generateShortId();
+        existing = await _db.collection('coasters').doc(coasterId).get();
+        attempts++;
+      }
+
+      if (attempts >= 10) {
+        debugPrint('Impossibile generare ID univoco per coaster $i');
+        continue;
+      }
+
+      DocumentReference coasterRef = _db.collection('coasters').doc(coasterId);
+
+      int recipeIndex = i % recipeIds.length;
+      int ingredientIndex = (i + 3) % ingredientIds.length; // Offset per evitare accoppiamenti ovvi
+
+      batch.set(coasterRef, {
+        'recipeId': recipeIds[recipeIndex],
+        'ingredientId': ingredientIds[ingredientIndex],
+        'isActive': true,
+        'claimedByUserId': null,
+        'usedAs': null,
+        'isConsumed': false, // NUOVO CAMPO
+        'consumedAt': null,  // NUOVO CAMPO
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  /// AGGIUNGI questa nuova funzione
+  Future<Map<String, int>> getCoasterStats() async {
+    try {
+      QuerySnapshot allCoasters = await _db.collection('coasters').get();
+
+      int total = allCoasters.docs.length;
+      int active = 0;
+      int claimed = 0;
+      int consumed = 0;
+      int available = 0;
+
+      for (var doc in allCoasters.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final isActive = data['isActive'] ?? true;
+        final isClaimed = data['claimedByUserId'] != null;
+        final isConsumed = data['isConsumed'] ?? false;
+
+        if (isActive) active++;
+        if (isClaimed) claimed++;
+        if (isConsumed) consumed++;
+        if (isActive && !isClaimed && !isConsumed) available++;
+      }
+
+      return {
+        'total': total,
+        'active': active,
+        'claimed': claimed,
+        'consumed': consumed,
+        'available': available,
+      };
+    } catch (e) {
+      debugPrint('Error getting coaster stats: $e');
+      return {};
+    }
+  }
+
   /// Ottiene un utente dal database come stream
   Stream<UserModel?> getUser(String uid) {
     return _db.collection('users').doc(uid).snapshots().map(
@@ -121,18 +1086,6 @@ class DatabaseService {
       debugPrint('Error adding completed room to user: $e');
       rethrow;
     }
-  }
-
-  Stream<List<RoomModel>> getUserRooms(String userId) {
-    return _db.collection('rooms')
-        .where('hostId', isEqualTo: userId)
-        .where('isCompleted', isEqualTo: false)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => RoomModel.fromMap(doc.data(), doc.id))
-          .toList();
-    });
   }
 
   /// NUOVO: Ottiene le stanze completate di un utente
@@ -234,31 +1187,6 @@ class DatabaseService {
     );
   }
 
-  Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
-    try {
-      // Verifica che l'utente possa unirsi
-      bool canJoin = await canJoinSpecificRoom(roomId, userId);
-      if (!canJoin) {
-        throw Exception('User cannot join this room');
-      }
-
-      // Aggiungi il partecipante alla stanza
-      await _db.collection('rooms').doc(roomId).update({
-        'participants': FieldValue.arrayUnion([{
-          'userId': userId,
-          'ingredientId': ingredientId,
-          'hasConfirmed': false,
-        }]),
-      });
-
-      // NUOVO: Aggiungi la stanza alla lista dell'utente
-      await addRoomToUser(userId, roomId);
-    } catch (e) {
-      debugPrint('Error joining room: $e');
-      rethrow;
-    }
-  }
-
   /// MIGLIORATO: Completa una stanza e aggiorna tutti gli utenti coinvolti
   Future<void> completeRoom(String roomId) async {
     try {
@@ -350,27 +1278,28 @@ class DatabaseService {
     }
   }
 
-  /// MIGLIORATO: Verifica se un utente può creare una stanza usando i riferimenti diretti
+  /// Verifica se un utente può creare una nuova stanza
   Future<bool> canCreateRoom(String userId) async {
     try {
-      debugPrint('🔍 Checking if user $userId can create room...');
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) return false;
 
-      UserModel? user = await getUser(userId).first;
-      debugPrint('👤 User found: ${user != null}');
+      final userData = userDoc.data() as Map<String, dynamic>;
 
-      if (user == null) {
-        debugPrint('❌ User not found, cannot create room');
-        return false;
+      // CORREZIONE: Chi ha una ricetta (pozione) può sempre creare stanze
+      final hasRecipe = userData['currentRecipeId'] != null && userData['currentRecipeId'] != '';
+
+      if (hasRecipe) {
+        // Chi ha una pozione può sempre creare stanze per la sua ricetta
+        return true;
       }
 
-      debugPrint('📊 User active rooms: ${user.rooms}');
-      debugPrint('✅ Can create room: ${user.rooms.isEmpty}');
+      // Chi ha solo ingredienti non può creare stanze (può solo unirsi)
+      return false;
 
-      return user.rooms.isEmpty;
     } catch (e) {
-      debugPrint('❌ Error checking if user can create room: $e');
-      // In caso di errore, permettiamo la creazione (fail-safe)
-      return true;
+      debugPrint('Error checking if user can create room: $e');
+      return false;
     }
   }
 
@@ -646,35 +1575,6 @@ class DatabaseService {
     }
   }
 
-  /// Conferma partecipazione (versione corretta)
-  Future<void> confirmParticipation(String roomId, String userId) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('rooms').doc(roomId).get();
-      if (doc.exists) {
-        // Cast corretto con controllo null
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data != null) {
-          List<dynamic> participants = List.from(data['participants'] ?? []);
-
-          for (int i = 0; i < participants.length; i++) {
-            if (participants[i] is Map<String, dynamic> &&
-                participants[i]['userId'] == userId) {
-              participants[i]['hasConfirmed'] = true;
-              break;
-            }
-          }
-
-          await _db.collection('rooms').doc(roomId).update({
-            'participants': participants,
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error confirming participation: $e');
-      rethrow;
-    }
-  }
-
   /// Dismette una stanza e rimuove tutti i partecipanti
   Future<void> dismissRoom(String roomId) async {
     try {
@@ -724,67 +1624,6 @@ class DatabaseService {
     }
   }
 
-  /// Completa una stanza e libera gli slot (versione migliorata)
-  Future<void> completeRoomAndFreeSlots(String roomId) async {
-    try {
-      // Ottieni i dati della stanza
-      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
-      if (!roomDoc.exists) return;
-
-      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
-
-      // Segna la stanza come completata
-      await _db.collection('rooms').doc(roomId).update({
-        'isCompleted': true,
-        'completedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Assegna punti all'host (chi ha la ricetta)
-      await updatePoints(room.hostId, 10);
-
-      // Assegna punti ai partecipanti (chi ha gli ingredienti)
-      for (ParticipantModel participant in room.participants) {
-        await updatePoints(participant.userId, 5);
-      }
-
-      // Registra il completamento
-      await createCompletionRecord(
-        room.hostId,
-        room.recipeId,
-        room.participants.map((p) => p.userId).toList(),
-      );
-
-      // Libera gli slot di tutti i partecipanti (incluso l'host)
-      List<String> allUserIds = [room.hostId];
-      allUserIds.addAll(room.participants.map((p) => p.userId));
-      await freeUserSlots(allUserIds);
-
-      // Assegna nuovi elementi casuali a tutti i partecipanti
-      for (String userId in allUserIds) {
-        await assignRandomGameElement(userId);
-      }
-    } catch (e) {
-      debugPrint('Error completing room and freeing slots: $e');
-      rethrow;
-    }
-  }
-
-
-  /// Ottiene il coaster dell'utente come stream
-  Stream<CoasterModel?> getUserCoasterStream(String userId) {
-    return _db.collection('coasters')
-        .where('claimedByUserId', isEqualTo: userId)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return CoasterModel.fromMap(
-          snapshot.docs.first.data(),
-          snapshot.docs.first.id
-      );
-    });
-  }
-
   /// Reclama un coaster e lo assegna come elemento casuale
   Future<bool> claimCoaster(String coasterId, String userId) async {
     try {
@@ -808,43 +1647,6 @@ class DatabaseService {
       return true;
     } catch (e) {
       debugPrint('Error claiming coaster: $e');
-      return false;
-    }
-  }
-
-  /// Usa sottobicchiere (come pozione o ingrediente) - versione migliorata
-  Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-      if (!doc.exists) return false;
-
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      if (!coaster.isActive || coaster.claimedByUserId != userId) {
-        return false; // Non attivo o non reclamato da questo utente
-      }
-
-      // Aggiorna il coaster con l'uso scelto
-      await _db.collection('coasters').doc(coasterId).update({
-        'usedAs': useAs,
-      });
-
-      // Aggiorna l'utente con l'elemento scelto
-      if (useAs == 'recipe') {
-        await _db.collection('users').doc(userId).update({
-          'currentRecipeId': coaster.recipeId,
-          'currentIngredientId': null,
-        });
-      } else if (useAs == 'ingredient') {
-        await _db.collection('users').doc(userId).update({
-          'currentIngredientId': coaster.ingredientId,
-          'currentRecipeId': null,
-        });
-      }
-
-      return true;
-    } catch (e) {
-      debugPrint('Error using coaster: $e');
       return false;
     }
   }
@@ -916,7 +1718,7 @@ class DatabaseService {
         if (recipes.docs.isNotEmpty) {
           final int randomIndex = random.nextInt(recipes.docs.length);
           final String recipeId = recipes.docs[randomIndex].id;
-          await assignRecipe;
+          assignRecipe;
         }
       } else {
         // Otteniamo un ingrediente casuale
@@ -962,39 +1764,6 @@ class DatabaseService {
   // =============================================================================
   // COASTER MANAGEMENT
   // =============================================================================
-
-  /// Cambia l'uso del sottobicchiere tra pozione e ingrediente
-  Future<bool> switchCoasterUsage(String userId, String coasterId, bool useAsRecipe) async {
-    try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
-      if (!doc.exists) return false;
-
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      // Verifica che il coaster appartenga all'utente
-      if (coaster.claimedByUserId != userId) {
-        return false;
-      }
-
-      // Aggiorna l'uso del coaster
-      String newUsage = useAsRecipe ? 'recipe' : 'ingredient';
-      await _db.collection('coasters').doc(coasterId).update({
-        'usedAs': newUsage,
-      });
-
-      // Aggiorna l'elemento assegnato all'utente
-      if (useAsRecipe) {
-        await assignRecipe(userId, coaster.recipeId);
-      } else {
-        await assignIngredient(userId, coaster.ingredientId);
-      }
-
-      return true;
-    } catch (e) {
-      debugPrint('Error switching coaster usage: $e');
-      return false;
-    }
-  }
 
   // =============================================================================
   // RECIPE MANAGEMENT
@@ -1092,15 +1861,6 @@ class DatabaseService {
     }
   }
 
-  /// Controlla se una stanza è pronta per essere completata
-  Stream<bool> isRoomReadyToComplete(String roomId) {
-    return _db.collection('rooms').doc(roomId).snapshots().map((snapshot) {
-      if (!snapshot.exists) return false;
-
-      RoomModel room = RoomModel.fromMap(snapshot.data()!, snapshot.id);
-      return room.isReadyToComplete();
-    });
-  }
 
   // =============================================================================
   // COMPLETIONS & LEADERBOARD
@@ -1187,108 +1947,6 @@ class DatabaseService {
     }
   }
 
-  // Crea sottobicchiere con ID specifico (per importazione)
-  Future<String> createCoasterWithId(String coasterId, String recipeId, String ingredientId) async {
-    try {
-      // Verifica che l'ID non esista già
-      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
-      if (existing.exists) {
-        throw Exception('Coaster con ID $coasterId già esistente');
-      }
-
-      // Crea il documento con l'ID specifico
-      await _db.collection('coasters').doc(coasterId).set({
-        'recipeId': recipeId,
-        'ingredientId': ingredientId,
-        'isActive': true,
-        'claimedByUserId': null,
-        'usedAs': null,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      return coasterId;
-    } catch (e) {
-      debugPrint('Error creating coaster with specific ID: $e');
-      rethrow;
-    }
-  }
-
-  // Genera coasters in bulk per test
-  Future<void> generateTestCoasters(String uid, int count) async {
-    bool isAdmin = await isUserAdmin(uid);
-    if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
-    }
-
-    // Ottieni liste di ricette e ingredienti
-    QuerySnapshot recipesSnapshot = await _db.collection('recipes').limit(60).get();
-    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').limit(60).get();
-
-    List<String> recipeIds = recipesSnapshot.docs.map((doc) => doc.id).toList();
-    List<String> ingredientIds = ingredientsSnapshot.docs.map((doc) => doc.id).toList();
-
-    if (recipeIds.isEmpty || ingredientIds.isEmpty) {
-      throw Exception('Non ci sono ricette o ingredienti nel database');
-    }
-
-    // Crea batch per operazioni multiple
-    WriteBatch batch = _db.batch();
-
-    for (int i = 0; i < count; i++) {
-      // Genera un ID personalizzato per ogni coaster
-      String coasterId = _generateShortId();
-
-      // Verifica che non esista già
-      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
-      int attempts = 0;
-      while (existing.exists && attempts < 10) {
-        coasterId = _generateShortId();
-        existing = await _db.collection('coasters').doc(coasterId).get();
-        attempts++;
-      }
-
-      if (attempts >= 10) {
-        debugPrint('Impossibile generare ID univoco per coaster $i');
-        continue;
-      }
-
-      DocumentReference coasterRef = _db.collection('coasters').doc(coasterId);
-
-      int recipeIndex = i % recipeIds.length;
-      int ingredientIndex = (i + 3) % ingredientIds.length; // Offset per evitare accoppiamenti ovvi
-
-      batch.set(coasterRef, {
-        'recipeId': recipeIds[recipeIndex],
-        'ingredientId': ingredientIds[ingredientIndex],
-        'isActive': true,
-        'claimedByUserId': null,
-        'usedAs': null,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    await batch.commit();
-  }
-
-  Future<CoasterModel?> getUserCoaster(String userId) async {
-    try {
-      // Ottieni tutti i coaster (potrebbe essere limitato se ce ne sono molti)
-      final snapshot = await _db.collection('coasters').get();
-
-      // Cerca manualmente il coaster dell'utente
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        if (data['claimedByUserId'] == userId) {
-          return CoasterModel.fromMap(data, doc.id);
-        }
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('Errore nel recupero del coaster: $e');
-      return null;
-    }
-  }
 
   Future<void> clearCoasters(String uid) async {
     bool isAdmin = await isUserAdmin(uid);

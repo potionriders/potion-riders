@@ -85,6 +85,157 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Aggiungere questo widget nella home_screen.dart
+
+  Widget _buildCoasterSection(BuildContext context, UserModel user, CoasterModel? coaster) {
+    if (coaster == null) {
+      return _buildNoCoasterSection(context);
+    }
+
+    // NUOVO: Se il coaster è consumato, mostra opzione di redistribuzione
+    if (coaster.isConsumed) {
+      return _buildConsumedCoasterSection(context, user, coaster);
+    }
+
+    // Coaster normale non consumato
+    return _buildActiveCoasterSection(context, user, coaster);
+  }
+
+  Widget _buildConsumedCoasterSection(BuildContext context, UserModel user, CoasterModel coaster) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.orange.shade50,
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.local_drink, color: Colors.orange[700], size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Sottobicchiere Consumato',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange[700],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Hai completato una pozione! Il tuo sottobicchiere è stato consumato.',
+            style: TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Puoi riconsegnarlo a un punto distribuzione per riceverne uno nuovo gratuitamente!',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _handleReturnCoaster(context, user.uid),
+              icon: const Icon(Icons.autorenew),
+              label: const Text('Riconsegna e Ottieni Nuovo'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[600],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'ID Sottobicchiere: ${coaster.id}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleReturnCoaster(BuildContext context, String userId) async {
+    // Mostra dialog di conferma
+    bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Riconsegna Sottobicchiere'),
+        content: const Text(
+          'Stai per riconsegnare il tuo sottobicchiere consumato e riceverne uno nuovo. Vuoi continuare?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Conferma'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Mostra loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Riconsegnando sottobicchiere...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final dbService = DatabaseService();
+      bool success = await dbService.returnConsumedCoasterAndGetNew(userId);
+
+      Navigator.pop(context); // Chiudi loading
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sottobicchiere riconsegnato! Hai ricevuto un nuovo sottobicchiere.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Errore nella riconsegna. Riprova o contatta un facilitatore.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // Chiudi loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Errore: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildSliverAppBar(BuildContext context, UserModel user) {
     final authService = Provider.of<AuthService>(context);
 
@@ -582,6 +733,137 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Text('Ho capito!'),
           ),
         ],
+      ),
+    );
+  }
+
+  // SOSTITUISCI i metodi stub nella home_screen.dart con queste implementazioni:
+
+  Widget _buildNoCoasterSection(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.grey.shade50,
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.qr_code,
+            size: 48,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Nessun Sottobicchiere',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scansiona un QR code per iniziare a giocare',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ScanItemScreen()),
+            ),
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scansiona QR'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveCoasterSection(BuildContext context, UserModel user, CoasterModel coaster) {
+    // Se il coaster è consumato, mostra widget diverso
+    if (coaster.isConsumed) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.orange.shade50,
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_drink, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                Text(
+                  'Sottobicchiere Consumato',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange[700],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text('Hai completato una pozione! Riconsegna il sottobicchiere per ottenerne uno nuovo.'),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () async {
+                bool success = await _dbService.returnConsumedCoasterAndGetNew(user.uid);
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Nuovo sottobicchiere ottenuto!')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.autorenew),
+              label: const Text('Ottieni Nuovo'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Coaster normale attivo
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: HomeScreenCoasterCard(
+        currentRecipeId: user.currentRecipeId,
+        currentIngredientId: user.currentIngredientId,
+        coaster: coaster,
+        userId: user.uid,
+        onTapRecipe: () {
+          if (user.currentRecipeId != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CreateRoomScreen(recipeId: user.currentRecipeId!),
+              ),
+            );
+          }
+        },
+        onTapIngredient: () {
+          if (user.currentIngredientId != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
+            );
+          }
+        },
+        onSwitchItem: (bool useAsRecipe) {
+          setState(() {});
+        },
       ),
     );
   }

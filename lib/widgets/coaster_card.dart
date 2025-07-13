@@ -194,379 +194,285 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard>
     }
   }
 
+  // Nel file widgets/coaster_card.dart, nella classe HomeScreenCoasterCard
+// SOSTITUISCI il metodo build con questo:
+
   @override
   Widget build(BuildContext context) {
-    // Se non c'è un sottobicchiere e nessuno degli elementi è definito
-    if (widget.coaster == null && widget.currentRecipeId == null && widget.currentIngredientId == null) {
-      return _buildEmptyStateCard(context);
+    if (widget.coaster == null) {
+      return _buildNoCoasterCard();
     }
 
-    // Se siamo in caricamento
-    if (_isLoading) {
-      return _buildLoadingCard(context);
+    final coaster = widget.coaster!;
+
+    // Se il coaster è consumato, non mostrare la card normale
+    if (coaster.isConsumed) {
+      return _buildConsumedCoasterCard(coaster);
     }
 
-    // Se c'è un sottobicchiere, mostriamo il toggle e gli elementi disponibili
-    if (widget.coaster != null) {
-      return _buildCoasterCard(context);
-    }
-
-    // Altrimenti mostriamo solo l'elemento corrente
-    if (_showRecipe && _recipe != null) {
-      return _buildRecipeCard(context);
-    } else if (!_showRecipe && _ingredient != null) {
-      return _buildIngredientCard(context);
-    }
-
-    // Fallback
-    return _buildEmptyStateCard(context);
+    return _buildActiveCoasterCard(coaster);
   }
 
-  Widget _buildCoasterCard(BuildContext context) {
-    final bool hasRecipe = _recipe != null;
-    final bool hasIngredient = _ingredient != null;
-    final bool canSwitch = hasRecipe && hasIngredient && !_isFlipping;
+// AGGIUNGI questi metodi nella classe _HomeScreenCoasterCardState:
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+  Widget _buildConsumedCoasterCard(CoasterModel coaster) {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.grey.shade100,
+        border: Border.all(color: Colors.grey.shade300),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
-          // Header con pulsante di flip
-          if (canSwitch)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  topRight: Radius.circular(12),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.flip),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Sottobicchiere',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  // Pulsante flip animato
-                  AnimatedBuilder(
-                    animation: _flipAnimation,
-                    builder: (context, child) {
-                      return Transform.rotate(
-                        angle: _flipAnimation.value * 3.14159, // Rotazione di 180 gradi
-                        child: ElevatedButton.icon(
-                          onPressed: _isFlipping ? null : _handleFlip,
-                          icon: _isFlipping
-                              ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                              : const Icon(Icons.flip, size: 18),
-                          label: Text(
-                            _showRecipe ? 'Usa Ingrediente' : 'Usa Pozione',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _showRecipe ? Colors.green : Colors.purple,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            minimumSize: Size.zero,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-          // Contenuto dinamico con animazione di flip
-          AnimatedBuilder(
-            animation: _flipAnimation,
-            builder: (context, child) {
-              // Durante la prima metà dell'animazione mostra il lato corrente
-              // Durante la seconda metà mostra il lato opposto
-              final showCurrentSide = _flipAnimation.value < 0.5;
-
-              return Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, 0.001) // Prospettiva
-                  ..rotateY(_flipAnimation.value * 3.14159),
-                child: _flipAnimation.value < 0.5
-                    ? (_showRecipe ? _buildRecipeContent(context) : _buildIngredientContent(context))
-                    : Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()..rotateY(3.14159), // Flip per il lato opposto
-                  child: !_showRecipe ? _buildRecipeContent(context) : _buildIngredientContent(context),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecipeContent(BuildContext context) {
-    if (_recipe == null) {
-      return const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Text('Nessuna pozione disponibile'),
-      );
-    }
-
-    return InkWell(
-      onTap: widget.onTapRecipe,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 100,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.purple.shade300,
-                  Colors.purple.shade800,
-                ],
-              ),
-            ),
-            child: Stack(
-              children: [
-                if (_recipe!.imageUrl.isNotEmpty)
-                  Positioned.fill(
-                    child: Opacity(
-                      opacity: 0.3,
-                      child: _recipe!.imageUrl.startsWith('http')
-                          ? Image.network(
-                        _recipe!.imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                        const Icon(
-                          Icons.image_not_supported,
-                          size: 48,
-                          color: Colors.white54,
-                        ),
-                      )
-                          : const Icon(
-                        Icons.science,
-                        size: 64,
-                        color: Colors.white54,
-                      ),
-                    ),
-                  ),
-                Positioned.fill(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.science,
-                          size: 36,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _recipe!.name,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Chip(
-                    label: Text(
-                      _recipe!.family,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                    backgroundColor: Colors.black38,
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_recipe!.description.isNotEmpty) ...[
-                  Text(
-                    _recipe!.description,
-                    style: const TextStyle(fontSize: 14),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                const Text(
-                  'Ingredienti necessari:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                ..._recipe!.requiredIngredients.map((ingredient) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline,
-                        size: 16,
-                        color: Theme.of(context).primaryColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          ingredient,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIngredientContent(BuildContext context) {
-    if (_ingredient == null) {
-      return const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Text('Nessun ingrediente disponibile'),
-      );
-    }
-
-    return InkWell(
-      onTap: widget.onTapIngredient,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.green.shade300,
-                  Colors.green.shade800,
-                ],
-              ),
-            ),
-            child: Stack(
-              children: [
-                if (_ingredient!.imageUrl.isNotEmpty)
-                  Positioned.fill(
-                    child: Opacity(
-                      opacity: 0.3,
-                      child: _ingredient!.imageUrl.startsWith('http')
-                          ? Image.network(
-                        _ingredient!.imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                        const Icon(
-                          Icons.image_not_supported,
-                          size: 48,
-                          color: Colors.white54,
-                        ),
-                      )
-                          : const Icon(
-                        Icons.eco,
-                        size: 64,
-                        color: Colors.white54,
-                      ),
-                    ),
-                  ),
-                const Center(
-                  child: Icon(
-                    Icons.eco,
-                    size: 36,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
+          // Contenuto base opaco
+          Opacity(
+            opacity: 0.5,
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _ingredient!.name,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          _ingredient!.family,
-                          style: TextStyle(
-                            color: Colors.green.shade800,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
+                  _buildCoasterHeader(coaster, true), // Mostra sempre come pozione
+                  const SizedBox(height: 16),
                   Text(
-                    _ingredient!.description,
-                    style: const TextStyle(fontSize: 14),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                    'Questo sottobicchiere è stato utilizzato per completare una pozione.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
+
+          // Overlay "CONSUMATO"
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: Colors.orange.withOpacity(0.9),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 48,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'CONSUMATO',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pozione completata con successo!',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withOpacity(0.9),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveCoasterCard(CoasterModel coaster) {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: _showRecipe ? Colors.purple.shade50 : Colors.green.shade50,
+        border: Border.all(
+          color: _showRecipe ? Colors.purple.shade200 : Colors.green.shade200,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCoasterHeader(coaster, _showRecipe),
+            const SizedBox(height: 16),
+            // Resto del contenuto della card...
+            if (_showRecipe && _recipe != null)
+              _buildRecipeContent()
+            else if (!_showRecipe && _ingredient != null)
+              _buildIngredientContent()
+            else
+              _buildLoadingContent(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoasterHeader(CoasterModel coaster, bool showRecipe) {
+    return Row(
+      children: [
+        Icon(
+          showRecipe ? Icons.local_drink : Icons.science,
+          color: showRecipe ? Colors.purple[700] : Colors.green[700],
+          size: 24,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          showRecipe ? 'Pozione' : 'Ingrediente',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: showRecipe ? Colors.purple[700] : Colors.green[700],
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Badge di stato
+        if (coaster.isConsumed)
+          _buildStatusBadge('CONSUMATO', Colors.orange)
+        else if (coaster.usedAs != null)
+          _buildStatusBadge('IN USO', Colors.blue),
+
+        const Spacer(),
+
+        // Pulsante flip solo se non consumato
+        if (!coaster.isConsumed)
+          IconButton(
+            onPressed: _handleFlip,
+            icon: const Icon(Icons.flip),
+            tooltip: 'Cambia uso',
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatusBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+// AGGIUNGI anche questi metodi helper se non esistono già:
+
+  Widget _buildNoCoasterCard() {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.grey.shade50,
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.qr_code, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 8),
+            Text(
+              'Nessun sottobicchiere',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Scansiona un QR code per iniziare',
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingContent() {
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
+  }
+
+  Widget _buildRecipeContent() {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _recipe!.name,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _recipe!.description,
+            style: TextStyle(color: Colors.grey[600]),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Spacer(),
+          if (widget.onTapRecipe != null)
+            ElevatedButton.icon(
+              onPressed: widget.onTapRecipe,
+              icon: const Icon(Icons.add),
+              label: const Text('Crea Stanza'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIngredientContent() {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _ingredient!.name,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _ingredient!.description,
+            style: TextStyle(color: Colors.grey[600]),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Spacer(),
+          if (widget.onTapIngredient != null)
+            ElevatedButton.icon(
+              onPressed: widget.onTapIngredient,
+              icon: const Icon(Icons.search),
+              label: const Text('Cerca Stanza'),
+            ),
         ],
       ),
     );
