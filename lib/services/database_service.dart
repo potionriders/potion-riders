@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:potion_riders/models/user_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
@@ -64,7 +65,8 @@ class DatabaseService {
 
 // NUOVO: Ottiene le stanze dove l'utente partecipa come ingrediente
   Stream<List<RoomModel>> getUserParticipatingRooms(String userId) {
-    return _db.collection('rooms')
+    return _db
+        .collection('rooms')
         .where('isCompleted', isEqualTo: false)
         .snapshots()
         .map((snapshot) {
@@ -76,10 +78,9 @@ class DatabaseService {
 
         // Controlla se l'utente è partecipante (non host)
         bool isParticipant = participants.any((p) =>
-        p is Map<String, dynamic> &&
+            p is Map<String, dynamic> &&
             p['userId'] == userId &&
-            roomData['hostId'] != userId
-        );
+            roomData['hostId'] != userId);
 
         if (isParticipant) {
           participatingRooms.add(RoomModel.fromMap(roomData, doc.id));
@@ -92,7 +93,8 @@ class DatabaseService {
 
 // MODIFICATO: Aggiorna il metodo per gestire le stanze dell'utente
   Stream<List<RoomModel>> getUserRooms(String userId) {
-    return _db.collection('rooms')
+    return _db
+        .collection('rooms')
         .where('hostId', isEqualTo: userId)
         .where('isCompleted', isEqualTo: false)
         .snapshots()
@@ -129,7 +131,8 @@ class DatabaseService {
           updateResult();
         });
 
-        participatingSubscription = getUserParticipatingRooms(userId).listen((rooms) {
+        participatingSubscription =
+            getUserParticipatingRooms(userId).listen((rooms) {
           participatingRooms = rooms;
           updateResult();
         });
@@ -163,7 +166,8 @@ class DatabaseService {
     });
   }
 
-  Future<Map<String, dynamic>> validateIngredientMatch(String roomId, String userId) async {
+  Future<Map<String, dynamic>> validateIngredientMatch(
+      String roomId, String userId) async {
     try {
       final result = {
         'canJoin': false,
@@ -175,7 +179,8 @@ class DatabaseService {
         'details': <String, dynamic>{},
       };
 
-      debugPrint('🔍 Validating ingredient match for user $userId in room $roomId');
+      debugPrint(
+          '🔍 Validating ingredient match for user $userId in room $roomId');
 
       // Step 1: Controlla che la stanza esista
       final roomDoc = await _db.collection('rooms').doc(roomId).get();
@@ -203,8 +208,8 @@ class DatabaseService {
         return result;
       }
 
-      bool alreadyParticipant = participants.any((p) =>
-      p is Map<String, dynamic> && p['userId'] == userId);
+      bool alreadyParticipant = participants
+          .any((p) => p is Map<String, dynamic> && p['userId'] == userId);
       if (alreadyParticipant) {
         result['reason'] = 'Sei già un partecipante';
         return result;
@@ -228,7 +233,8 @@ class DatabaseService {
 
       List<dynamic> userRooms = userData['rooms'] ?? [];
       if (userRooms.isNotEmpty) {
-        result['reason'] = 'Utente già in ${userRooms.length} stanza/e attiva/e';
+        result['reason'] =
+            'Utente già in ${userRooms.length} stanza/e attiva/e';
         return result;
       }
 
@@ -242,7 +248,8 @@ class DatabaseService {
       }
 
       final recipeData = recipeDoc.data() as Map<String, dynamic>;
-      final requiredIngredients = List<String>.from(recipeData['ingredients'] ?? []);
+      final requiredIngredients =
+          List<String>.from(recipeData['ingredients'] ?? []);
       result['requiredIngredients'] = requiredIngredients;
 
       debugPrint('📋 Required ingredients: $requiredIngredients');
@@ -250,7 +257,8 @@ class DatabaseService {
 
       // Step 5: Controlla se l'ingrediente dell'utente è richiesto
       if (!requiredIngredients.contains(userIngredient)) {
-        result['reason'] = 'Il tuo ingrediente ($userIngredient) non è richiesto da questa ricetta';
+        result['reason'] =
+            'Il tuo ingrediente ($userIngredient) non è richiesto da questa ricetta';
         return result;
       }
 
@@ -272,17 +280,18 @@ class DatabaseService {
 
       // Step 7: Controlla se l'ingrediente è già presente
       if (presentIngredients.contains(userIngredient)) {
-        result['reason'] = 'Il tuo ingrediente ($userIngredient) è già presente nella stanza';
+        result['reason'] =
+            'Il tuo ingrediente ($userIngredient) è già presente nella stanza';
         return result;
       }
 
       // Step 8: TUTTO OK - L'utente può unirsi!
       result['canJoin'] = true;
-      result['reason'] = 'Match perfetto! Il tuo ingrediente è necessario e mancante.';
+      result['reason'] =
+          'Match perfetto! Il tuo ingrediente è necessario e mancante.';
 
       debugPrint('🎉 Validation passed: User can join room');
       return result;
-
     } catch (e) {
       debugPrint('❌ Error validating ingredient match: $e');
       return {
@@ -298,7 +307,8 @@ class DatabaseService {
   }
 
   /// Versione migliorata di joinRoom con validazione ingredienti
-  Future<void> joinRoomWithIngredientValidation(String roomId, String userId, String ingredientId) async {
+  Future<void> joinRoomWithIngredientValidation(
+      String roomId, String userId, String ingredientId) async {
     try {
       debugPrint('🚀 Starting validated join room process...');
       debugPrint('   Room ID: $roomId');
@@ -314,7 +324,8 @@ class DatabaseService {
 
       // Step 2: Double-check che l'ingrediente fornito corrisponda a quello dell'utente
       if (validation['userIngredient'] != ingredientId) {
-        throw Exception('L\'ingrediente fornito ($ingredientId) non corrisponde a quello assegnato (${validation['userIngredient']})');
+        throw Exception(
+            'L\'ingrediente fornito ($ingredientId) non corrisponde a quello assegnato (${validation['userIngredient']})');
       }
 
       debugPrint('✅ Validation passed, proceeding with join...');
@@ -338,24 +349,28 @@ class DatabaseService {
         // Controlli last-minute
         List<dynamic> participants = roomData['participants'] ?? [];
         if (participants.length >= 3) {
-          throw Exception('La stanza si è riempita mentre processavamo la richiesta');
+          throw Exception(
+              'La stanza si è riempita mentre processavamo la richiesta');
         }
 
         // Controlla ancora che l'ingrediente non sia già presente
         bool ingredientAlreadyPresent = participants.any((p) =>
-        p is Map<String, dynamic> && p['ingredientId'] == ingredientId);
+            p is Map<String, dynamic> && p['ingredientId'] == ingredientId);
         if (ingredientAlreadyPresent) {
-          throw Exception('L\'ingrediente è stato aggiunto da qualcun altro mentre processavamo la richiesta');
+          throw Exception(
+              'L\'ingrediente è stato aggiunto da qualcun altro mentre processavamo la richiesta');
         }
 
         // Aggiorna la stanza
         transaction.update(roomRef, {
-          'participants': FieldValue.arrayUnion([{
-            'userId': userId,
-            'ingredientId': ingredientId,
-            'hasConfirmed': false,
-            'joinedAt': FieldValue.serverTimestamp(),
-          }]),
+          'participants': FieldValue.arrayUnion([
+            {
+              'userId': userId,
+              'ingredientId': ingredientId,
+              'hasConfirmed': false,
+              'joinedAt': FieldValue.serverTimestamp(),
+            }
+          ]),
         });
 
         // Aggiorna l'utente
@@ -369,20 +384,28 @@ class DatabaseService {
         });
       });
 
-      debugPrint('🎉 User successfully joined room with ingredient validation!');
-
+      debugPrint(
+          '🎉 User successfully joined room with ingredient validation!');
     } catch (e) {
       debugPrint('❌ Error in joinRoomWithIngredientValidation: $e');
       rethrow;
     }
   }
 
+  // ===================================================================
+// CORREZIONE PUNTEGGI in database_service.dart
+// ===================================================================
+
+// SOSTITUISCI la funzione completeRoomAndFreeSlots esistente:
+
   Future<void> completeRoomAndFreeSlots(String roomId) async {
     try {
-      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      DocumentSnapshot roomDoc =
+          await _db.collection('rooms').doc(roomId).get();
       if (!roomDoc.exists) return;
 
-      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+      RoomModel room =
+          RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
 
       // Segna la stanza come completata
       await _db.collection('rooms').doc(roomId).update({
@@ -390,12 +413,12 @@ class DatabaseService {
         'completedAt': FieldValue.serverTimestamp(),
       });
 
-      // Assegna punti all'host (chi ha la pozione)
-      await updatePoints(room.hostId, 10);
+      // CORREZIONE: Assegna punti all'host (chi ha la pozione) - DA 10 A 12
+      await updatePoints(room.hostId, 12);
 
-      // Assegna punti ai partecipanti (chi ha gli ingredienti)
+      // CORREZIONE: Assegna punti ai partecipanti (chi ha gli ingredienti) - DA 5 A 3
       for (ParticipantModel participant in room.participants) {
-        await updatePoints(participant.userId, 5);
+        await updatePoints(participant.userId, 3);
       }
 
       // NUOVO: Consuma il sottobicchiere dell'host (chi ha la pozione)
@@ -427,7 +450,8 @@ class DatabaseService {
   Future<void> consumeUserCoaster(String userId) async {
     try {
       // Trova il coaster dell'utente
-      QuerySnapshot coasterQuery = await _db.collection('coasters')
+      QuerySnapshot coasterQuery = await _db
+          .collection('coasters')
           .where('claimedByUserId', isEqualTo: userId)
           .where('isConsumed', isEqualTo: false)
           .limit(1)
@@ -458,7 +482,8 @@ class DatabaseService {
   Future<bool> returnConsumedCoasterAndGetNew(String userId) async {
     try {
       // Verifica che l'utente abbia un coaster consumato
-      QuerySnapshot consumedQuery = await _db.collection('coasters')
+      QuerySnapshot consumedQuery = await _db
+          .collection('coasters')
           .where('claimedByUserId', isEqualTo: userId)
           .where('isConsumed', isEqualTo: true)
           .limit(1)
@@ -478,7 +503,8 @@ class DatabaseService {
       });
 
       // Trova un nuovo coaster disponibile
-      QuerySnapshot availableQuery = await _db.collection('coasters')
+      QuerySnapshot availableQuery = await _db
+          .collection('coasters')
           .where('isActive', isEqualTo: true)
           .where('claimedByUserId', isEqualTo: null)
           .where('isConsumed', isEqualTo: false)
@@ -514,7 +540,8 @@ class DatabaseService {
   Future<bool> canGetNewCoaster(String userId) async {
     try {
       // Verifica che abbia un coaster consumato
-      QuerySnapshot consumedQuery = await _db.collection('coasters')
+      QuerySnapshot consumedQuery = await _db
+          .collection('coasters')
           .where('claimedByUserId', isEqualTo: userId)
           .where('isConsumed', isEqualTo: true)
           .limit(1)
@@ -528,7 +555,8 @@ class DatabaseService {
   }
 
   /// Ottieni le stanze compatibili per un utente basate sul suo ingrediente
-  Future<List<Map<String, dynamic>>> getCompatibleRoomsForUser(String userId) async {
+  Future<List<Map<String, dynamic>>> getCompatibleRoomsForUser(
+      String userId) async {
     try {
       debugPrint('🔍 Finding compatible rooms for user: $userId');
 
@@ -548,7 +576,8 @@ class DatabaseService {
       debugPrint('👤 User ingredient: $userIngredient');
 
       // Ottieni tutte le stanze attive
-      final roomsSnapshot = await _db.collection('rooms')
+      final roomsSnapshot = await _db
+          .collection('rooms')
           .where('isCompleted', isEqualTo: false)
           .get();
 
@@ -566,8 +595,8 @@ class DatabaseService {
         if (participants.length >= 3) continue;
 
         // Salta se l'utente è già partecipante
-        bool isParticipant = participants.any((p) =>
-        p is Map<String, dynamic> && p['userId'] == userId);
+        bool isParticipant = participants
+            .any((p) => p is Map<String, dynamic> && p['userId'] == userId);
         if (isParticipant) continue;
 
         // Controlla la compatibilità degli ingredienti
@@ -584,11 +613,11 @@ class DatabaseService {
       }
 
       // Ordina per score di compatibilità
-      compatibleRooms.sort((a, b) => b['matchScore'].compareTo(a['matchScore']));
+      compatibleRooms
+          .sort((a, b) => b['matchScore'].compareTo(a['matchScore']));
 
       debugPrint('✅ Found ${compatibleRooms.length} compatible rooms');
       return compatibleRooms;
-
     } catch (e) {
       debugPrint('❌ Error finding compatible rooms: $e');
       return [];
@@ -603,11 +632,14 @@ class DatabaseService {
     if (validation['canJoin']) score += 100;
 
     // Punti bonus in base a quanti ingredienti mancano ancora
-    List<String> missingIngredients = List<String>.from(validation['missingIngredients'] ?? []);
-    score += missingIngredients.length * 10; // Più ingredienti mancano, più interessante è la stanza
+    List<String> missingIngredients =
+        List<String>.from(validation['missingIngredients'] ?? []);
+    score += missingIngredients.length *
+        10; // Più ingredienti mancano, più interessante è la stanza
 
     // Punti bonus se la stanza ha già alcuni partecipanti (più vicina al completamento)
-    List<String> presentIngredients = List<String>.from(validation['presentIngredients'] ?? []);
+    List<String> presentIngredients =
+        List<String>.from(validation['presentIngredients'] ?? []);
     score += presentIngredients.length * 5;
 
     return score;
@@ -624,12 +656,14 @@ class DatabaseService {
       final recipeData = recipeDoc.data() as Map<String, dynamic>;
 
       // Conta quante volte è stata completata
-      final completionsSnapshot = await _db.collection('completions')
+      final completionsSnapshot = await _db
+          .collection('completions')
           .where('recipeId', isEqualTo: recipeId)
           .get();
 
       // Conta le stanze attive che usano questa ricetta
-      final activeRoomsSnapshot = await _db.collection('rooms')
+      final activeRoomsSnapshot = await _db
+          .collection('rooms')
           .where('recipeId', isEqualTo: recipeId)
           .where('isCompleted', isEqualTo: false)
           .get();
@@ -639,9 +673,9 @@ class DatabaseService {
         'completionCount': completionsSnapshot.docs.length,
         'activeRoomsCount': activeRoomsSnapshot.docs.length,
         'ingredients': List<String>.from(recipeData['ingredients'] ?? []),
-        'popularity': completionsSnapshot.docs.length + (activeRoomsSnapshot.docs.length * 2),
+        'popularity': completionsSnapshot.docs.length +
+            (activeRoomsSnapshot.docs.length * 2),
       };
-
     } catch (e) {
       debugPrint('❌ Error getting recipe stats: $e');
       rethrow;
@@ -665,7 +699,8 @@ class DatabaseService {
           'nickname': userData['nickname'],
           'currentIngredientId': userData['currentIngredientId'],
           'rooms': userData['rooms'] ?? [],
-          'canPlay': userData['currentIngredientId'] != null && (userData['rooms'] as List? ?? []).isEmpty,
+          'canPlay': userData['currentIngredientId'] != null &&
+              (userData['rooms'] as List? ?? []).isEmpty,
         };
 
         // Se l'utente può giocare, trova stanze compatibili
@@ -677,7 +712,8 @@ class DatabaseService {
       }
 
       // Statistiche generali
-      final allRoomsSnapshot = await _db.collection('rooms')
+      final allRoomsSnapshot = await _db
+          .collection('rooms')
           .where('isCompleted', isEqualTo: false)
           .get();
 
@@ -691,7 +727,6 @@ class DatabaseService {
       };
 
       return result;
-
     } catch (e) {
       debugPrint('❌ Error in debug user matching: $e');
       return {
@@ -708,13 +743,15 @@ class DatabaseService {
 
       await _db.runTransaction((transaction) async {
         // Trova tutte le stanze attive
-        final roomsSnapshot = await _db.collection('rooms')
+        final roomsSnapshot = await _db
+            .collection('rooms')
             .where('isCompleted', isEqualTo: false)
             .get();
 
         for (var roomDoc in roomsSnapshot.docs) {
           final roomData = roomDoc.data();
-          List<dynamic> participants = List.from(roomData['participants'] ?? []);
+          List<dynamic> participants =
+              List.from(roomData['participants'] ?? []);
 
           // Rimuovi l'utente se presente
           bool userRemoved = false;
@@ -745,7 +782,6 @@ class DatabaseService {
       });
 
       debugPrint('✅ User safely removed from all rooms');
-
     } catch (e) {
       debugPrint('❌ Error safely removing user from rooms: $e');
       rethrow;
@@ -755,13 +791,17 @@ class DatabaseService {
   // Usa sottobicchiere (come pozione o ingrediente) - versione aggiornata
   Future<bool> useCoaster(String coasterId, String userId, String useAs) async {
     try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      DocumentSnapshot doc =
+          await _db.collection('coasters').doc(coasterId).get();
       if (!doc.exists) return false;
 
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      CoasterModel coaster =
+          CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
 
       // AGGIORNATO: Controlla anche che non sia consumato
-      if (!coaster.isActive || coaster.claimedByUserId != userId || coaster.isConsumed) {
+      if (!coaster.isActive ||
+          coaster.claimedByUserId != userId ||
+          coaster.isConsumed) {
         return false; // Non attivo, non reclamato da questo utente, o già consumato
       }
 
@@ -791,12 +831,15 @@ class DatabaseService {
   }
 
   /// Cambia l'uso del sottobicchiere tra pozione e ingrediente - versione aggiornata
-  Future<bool> switchCoasterUsage(String userId, String coasterId, bool useAsRecipe) async {
+  Future<bool> switchCoasterUsage(
+      String userId, String coasterId, bool useAsRecipe) async {
     try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      DocumentSnapshot doc =
+          await _db.collection('coasters').doc(coasterId).get();
       if (!doc.exists) return false;
 
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      CoasterModel coaster =
+          CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
 
       // AGGIORNATO: Verifica che il coaster appartenga all'utente e non sia consumato
       if (coaster.claimedByUserId != userId || coaster.isConsumed) {
@@ -832,30 +875,31 @@ class DatabaseService {
 
   /// Ottiene il coaster dell'utente come stream - versione aggiornata
   Stream<CoasterModel?> getUserCoasterStream(String userId) {
-    return _db.collection('coasters')
+    return _db
+        .collection('coasters')
         .where('claimedByUserId', isEqualTo: userId)
         .limit(1)
         .snapshots()
         .map((snapshot) {
       if (snapshot.docs.isEmpty) return null;
       return CoasterModel.fromMap(
-          snapshot.docs.first.data(),
-          snapshot.docs.first.id
-      );
+          snapshot.docs.first.data(), snapshot.docs.first.id);
     });
   }
 
   /// Ottiene il coaster dell'utente - versione aggiornata
   Future<CoasterModel?> getUserCoaster(String userId) async {
     try {
-      final snapshot = await _db.collection('coasters')
+      final snapshot = await _db
+          .collection('coasters')
           .where('claimedByUserId', isEqualTo: userId)
           .limit(1)
           .get();
 
       if (snapshot.docs.isEmpty) return null;
 
-      return CoasterModel.fromMap(snapshot.docs.first.data(), snapshot.docs.first.id);
+      return CoasterModel.fromMap(
+          snapshot.docs.first.data(), snapshot.docs.first.id);
     } catch (e) {
       debugPrint('Errore nel recupero del coaster: $e');
       return null;
@@ -868,13 +912,15 @@ class DatabaseService {
 
   /// Sovrascrive il metodo joinRoom esistente con la versione validata
   @override
-  Future<void> joinRoom(String roomId, String userId, String ingredientId) async {
+  Future<void> joinRoom(
+      String roomId, String userId, String ingredientId) async {
     await joinRoomWithIngredientValidation(roomId, userId, ingredientId);
   }
 
   Future<bool> isItemClaimed(String itemId) async {
     // Controlla se è una ricetta
-    QuerySnapshot recipeQuery = await _db.collection('users')
+    QuerySnapshot recipeQuery = await _db
+        .collection('users')
         .where('currentRecipeId', isEqualTo: itemId)
         .limit(1)
         .get();
@@ -884,7 +930,8 @@ class DatabaseService {
     }
 
     // Controlla se è un ingrediente
-    QuerySnapshot ingredientQuery = await _db.collection('users')
+    QuerySnapshot ingredientQuery = await _db
+        .collection('users')
         .where('currentIngredientId', isEqualTo: itemId)
         .limit(1)
         .get();
@@ -893,26 +940,28 @@ class DatabaseService {
   }
 
   Future<void> createUser(
-      String uid,
-      String email,
-      String nickname, {
-        String? photoUrl,
-        String role = 'player'
-      }) async {
+    String uid,
+    String email,
+    String nickname,
+    String photoUrl,
+    String house, // NUOVO PARAMETRO CASATA
+    String? role,
+  ) async {
     try {
       final String gameUuid = const Uuid().v4();
-
+      role ??= 'player';
       await _db.collection('users').doc(uid).set({
         'email': email,
         'nickname': nickname,
         'photoUrl': photoUrl,
-        'role': role,
+        'house': house, // NUOVO CAMPO CASATA
+        'role': role ,
         'points': 0,
         'gameUuid': gameUuid,
         'currentRecipeId': null,
         'currentIngredientId': null,
-        'rooms': [], // NUOVO: Lista delle stanze attive
-        'completedRooms': [], // NUOVO: Lista delle stanze completate
+        'rooms': [],
+        'completedRooms': [],
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -927,10 +976,85 @@ class DatabaseService {
     }
   }
 
-  // AGGIUNGI/SOSTITUISCI queste funzioni nel file database_service.dart
+// AGGIUNGI questa nuova funzione per la classifica per casate:
+
+  /// Ottiene la classifica per casate
+  Stream<List<Map<String, dynamic>>> getHouseLeaderboard() {
+    return _db.collection('users').snapshots().map((snapshot) {
+      Map<String, Map<String, dynamic>> houseStats = {
+        'Rospo Verde': {'totalPoints': 0, 'playerCount': 0, 'players': []},
+        'Gatto Nero': {'totalPoints': 0, 'playerCount': 0, 'players': []},
+        'Merlo d\'Oro': {'totalPoints': 0, 'playerCount': 0, 'players': []},
+      };
+
+      for (var doc in snapshot.docs) {
+        final userData = doc.data();
+        final house = userData['house'] as String? ?? 'Senza Casata';
+        final points = userData['points'] as int? ?? 0;
+        final nickname = userData['nickname'] as String? ?? 'Anonimo';
+
+        if (houseStats.containsKey(house)) {
+          houseStats[house]!['totalPoints'] =
+              (houseStats[house]!['totalPoints'] as int) + points;
+          houseStats[house]!['playerCount'] =
+              (houseStats[house]!['playerCount'] as int) + 1;
+          (houseStats[house]!['players'] as List).add({
+            'nickname': nickname,
+            'points': points,
+          });
+        }
+      }
+
+      // Converti in lista e ordina per punti totali
+      List<Map<String, dynamic>> houseList = houseStats.entries.map((entry) {
+        return {
+          'house': entry.key,
+          'totalPoints': entry.value['totalPoints'],
+          'playerCount': entry.value['playerCount'],
+          'averagePoints': entry.value['playerCount'] > 0
+              ? (entry.value['totalPoints'] as int) /
+                  (entry.value['playerCount'] as int)
+              : 0.0,
+          'players': entry.value['players'],
+        };
+      }).toList();
+
+      houseList.sort((a, b) =>
+          (b['totalPoints'] as int).compareTo(a['totalPoints'] as int));
+
+      return houseList;
+    });
+  }
+
+// AGGIUNGI questa funzione helper per ottenere le casate disponibili:
+
+  /// Ottiene la lista delle casate disponibili
+  List<Map<String, dynamic>> getAvailableHouses() {
+    return [
+      {
+        'name': 'Rospo Verde',
+        'description': 'Saggezza e Natura',
+        'color': Colors.green,
+        'icon': Icons.pets,
+      },
+      {
+        'name': 'Gatto Nero',
+        'description': 'Mistero e Astuzia',
+        'color': Colors.purple,
+        'icon': Icons.pets,
+      },
+      {
+        'name': 'Merlo d\'Oro',
+        'description': 'Coraggio e Lealtà',
+        'color': Colors.amber,
+        'icon': Icons.pets,
+      },
+    ];
+  }
 
   /// SOSTITUISCI la funzione createCoasterWithId esistente
-  Future<String> createCoasterWithId(String coasterId, String recipeId, String ingredientId) async {
+  Future<String> createCoasterWithId(
+      String coasterId, String recipeId, String ingredientId) async {
     try {
       await _db.collection('coasters').doc(coasterId).set({
         'recipeId': recipeId,
@@ -939,7 +1063,7 @@ class DatabaseService {
         'claimedByUserId': null,
         'usedAs': null,
         'isConsumed': false, // NUOVO CAMPO
-        'consumedAt': null,  // NUOVO CAMPO
+        'consumedAt': null, // NUOVO CAMPO
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -954,15 +1078,19 @@ class DatabaseService {
   Future<void> generateTestCoasters(String uid, int count) async {
     bool isAdmin = await isUserAdmin(uid);
     if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+      throw Exception(
+          'Non hai i permessi di amministratore per eseguire questa operazione');
     }
 
     // Ottieni liste di ricette e ingredienti
-    QuerySnapshot recipesSnapshot = await _db.collection('recipes').limit(60).get();
-    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').limit(60).get();
+    QuerySnapshot recipesSnapshot =
+        await _db.collection('recipes').limit(60).get();
+    QuerySnapshot ingredientsSnapshot =
+        await _db.collection('ingredients').limit(60).get();
 
     List<String> recipeIds = recipesSnapshot.docs.map((doc) => doc.id).toList();
-    List<String> ingredientIds = ingredientsSnapshot.docs.map((doc) => doc.id).toList();
+    List<String> ingredientIds =
+        ingredientsSnapshot.docs.map((doc) => doc.id).toList();
 
     if (recipeIds.isEmpty || ingredientIds.isEmpty) {
       throw Exception('Non ci sono ricette o ingredienti nel database');
@@ -976,7 +1104,8 @@ class DatabaseService {
       String coasterId = _generateShortId();
 
       // Verifica che non esista già
-      DocumentSnapshot existing = await _db.collection('coasters').doc(coasterId).get();
+      DocumentSnapshot existing =
+          await _db.collection('coasters').doc(coasterId).get();
       int attempts = 0;
       while (existing.exists && attempts < 10) {
         coasterId = _generateShortId();
@@ -992,7 +1121,8 @@ class DatabaseService {
       DocumentReference coasterRef = _db.collection('coasters').doc(coasterId);
 
       int recipeIndex = i % recipeIds.length;
-      int ingredientIndex = (i + 3) % ingredientIds.length; // Offset per evitare accoppiamenti ovvi
+      int ingredientIndex = (i + 3) %
+          ingredientIds.length; // Offset per evitare accoppiamenti ovvi
 
       batch.set(coasterRef, {
         'recipeId': recipeIds[recipeIndex],
@@ -1001,7 +1131,7 @@ class DatabaseService {
         'claimedByUserId': null,
         'usedAs': null,
         'isConsumed': false, // NUOVO CAMPO
-        'consumedAt': null,  // NUOVO CAMPO
+        'consumedAt': null, // NUOVO CAMPO
         'createdAt': FieldValue.serverTimestamp(),
       });
     }
@@ -1047,9 +1177,10 @@ class DatabaseService {
 
   /// Ottiene un utente dal database come stream
   Stream<UserModel?> getUser(String uid) {
-    return _db.collection('users').doc(uid).snapshots().map(
-            (snapshot) => snapshot.exists ? UserModel.fromMap(snapshot.data()!, snapshot.id) : null
-    );
+    return _db.collection('users').doc(uid).snapshots().map((snapshot) =>
+        snapshot.exists
+            ? UserModel.fromMap(snapshot.data()!, snapshot.id)
+            : null);
   }
 
   /// NUOVO: Aggiunge una stanza alla lista dell'utente
@@ -1098,9 +1229,11 @@ class DatabaseService {
       List<RoomModel> rooms = [];
       for (String roomId in user.completedRooms) {
         try {
-          DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+          DocumentSnapshot roomDoc =
+              await _db.collection('rooms').doc(roomId).get();
           if (roomDoc.exists) {
-            rooms.add(RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id));
+            rooms.add(RoomModel.fromMap(
+                roomDoc.data() as Map<String, dynamic>, roomDoc.id));
           }
         } catch (e) {
           debugPrint('Error getting completed room $roomId: $e');
@@ -1119,7 +1252,8 @@ class DatabaseService {
   /// MIGLIORATO: Crea una nuova stanza e aggiorna l'utente
   Future<String> createRoom(String hostId, String recipeId) async {
     try {
-      debugPrint('🏗️ Starting room creation for host: $hostId, recipe: $recipeId');
+      debugPrint(
+          '🏗️ Starting room creation for host: $hostId, recipe: $recipeId');
 
       // Verifica che l'utente possa creare una stanza
       bool canCreate = await canCreateRoom(hostId);
@@ -1148,7 +1282,8 @@ class DatabaseService {
         await addRoomToUser(hostId, roomId);
         debugPrint('✅ Room added to user successfully');
       } catch (userUpdateError) {
-        debugPrint('⚠️ Warning: Room created but failed to update user: $userUpdateError');
+        debugPrint(
+            '⚠️ Warning: Room created but failed to update user: $userUpdateError');
         // La stanza esiste, ma l'utente potrebbe non avere il riferimento
         // Proviamo a recuperare in modo asincrono
         _retryAddRoomToUser(hostId, roomId);
@@ -1173,7 +1308,8 @@ class DatabaseService {
       } catch (e) {
         debugPrint('⚠️ Retry $attempt failed: $e');
         if (attempt == 3) {
-          debugPrint('❌ All retries failed for adding room $roomId to user $userId');
+          debugPrint(
+              '❌ All retries failed for adding room $roomId to user $userId');
         }
       }
     }
@@ -1181,20 +1317,22 @@ class DatabaseService {
 
   /// Ottiene una stanza specifica
   Stream<RoomModel?> getRoom(String roomId) {
-    return _db.collection('rooms').doc(roomId).snapshots().map(
-            (snapshot) => snapshot.exists ?
-        RoomModel.fromMap(snapshot.data()!, snapshot.id) : null
-    );
+    return _db.collection('rooms').doc(roomId).snapshots().map((snapshot) =>
+        snapshot.exists
+            ? RoomModel.fromMap(snapshot.data()!, snapshot.id)
+            : null);
   }
 
   /// MIGLIORATO: Completa una stanza e aggiorna tutti gli utenti coinvolti
   Future<void> completeRoom(String roomId) async {
     try {
       // Ottieni i dati della stanza
-      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      DocumentSnapshot roomDoc =
+          await _db.collection('rooms').doc(roomId).get();
       if (!roomDoc.exists) return;
 
-      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+      RoomModel room =
+          RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
 
       // Segna la stanza come completata
       await _db.collection('rooms').doc(roomId).update({
@@ -1230,7 +1368,6 @@ class DatabaseService {
         room.recipeId,
         room.participants.map((p) => p.userId).toList(),
       );
-
     } catch (e) {
       debugPrint('Error completing room and updating users: $e');
       rethrow;
@@ -1240,7 +1377,8 @@ class DatabaseService {
   /// MIGLIORATO: Abbandona una stanza (rimuove l'utente e aggiorna i riferimenti)
   Future<void> leaveRoom(String roomId, String userId) async {
     try {
-      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
+      DocumentSnapshot roomDoc =
+          await _db.collection('rooms').doc(roomId).get();
       if (!roomDoc.exists) return;
 
       Map<String, dynamic> data = roomDoc.data() as Map<String, dynamic>;
@@ -1260,7 +1398,8 @@ class DatabaseService {
       } else {
         // Rimuovi il partecipante dalla stanza
         List<dynamic> participants = List.from(data['participants'] ?? []);
-        participants.removeWhere((p) => p is Map<String, dynamic> && p['userId'] == userId);
+        participants.removeWhere(
+            (p) => p is Map<String, dynamic> && p['userId'] == userId);
 
         await _db.collection('rooms').doc(roomId).update({
           'participants': participants,
@@ -1287,7 +1426,8 @@ class DatabaseService {
       final userData = userDoc.data() as Map<String, dynamic>;
 
       // CORREZIONE: Chi ha una ricetta (pozione) può sempre creare stanze
-      final hasRecipe = userData['currentRecipeId'] != null && userData['currentRecipeId'] != '';
+      final hasRecipe = userData['currentRecipeId'] != null &&
+          userData['currentRecipeId'] != '';
 
       if (hasRecipe) {
         // Chi ha una pozione può sempre creare stanze per la sua ricetta
@@ -1296,7 +1436,6 @@ class DatabaseService {
 
       // Chi ha solo ingredienti non può creare stanze (può solo unirsi)
       return false;
-
     } catch (e) {
       debugPrint('Error checking if user can create room: $e');
       return false;
@@ -1308,12 +1447,14 @@ class DatabaseService {
       debugPrint('🔄 Syncing rooms for user: $userId');
 
       // Trova tutte le stanze dove l'utente è host o partecipante
-      QuerySnapshot hostRooms = await _db.collection('rooms')
+      QuerySnapshot hostRooms = await _db
+          .collection('rooms')
           .where('hostId', isEqualTo: userId)
           .where('isCompleted', isEqualTo: false)
           .get();
 
-      QuerySnapshot allActiveRooms = await _db.collection('rooms')
+      QuerySnapshot allActiveRooms = await _db
+          .collection('rooms')
           .where('isCompleted', isEqualTo: false)
           .get();
 
@@ -1330,7 +1471,8 @@ class DatabaseService {
         List<dynamic> participants = data['participants'] ?? [];
 
         for (var participant in participants) {
-          if (participant is Map<String, dynamic> && participant['userId'] == userId) {
+          if (participant is Map<String, dynamic> &&
+              participant['userId'] == userId) {
             userRooms.add(doc.id);
             break;
           }
@@ -1351,7 +1493,8 @@ class DatabaseService {
 
   Future<String> createRoomSimple(String hostId, String recipeId) async {
     try {
-      debugPrint('🏗️ Creating simple room for host: $hostId, recipe: $recipeId');
+      debugPrint(
+          '🏗️ Creating simple room for host: $hostId, recipe: $recipeId');
 
       DocumentReference docRef = await _db.collection('rooms').add({
         'hostId': hostId,
@@ -1382,7 +1525,8 @@ class DatabaseService {
       }
 
       // Verifica se l'utente è già nella stanza
-      if (room.participants.any((p) => p.userId == userId) || room.hostId == userId) {
+      if (room.participants.any((p) => p.userId == userId) ||
+          room.hostId == userId) {
         return false;
       }
 
@@ -1401,7 +1545,8 @@ class DatabaseService {
 
   /// NUOVO: Ottiene tutte le stanze aperte (non completate e con spazio disponibile)
   Stream<List<RoomModel>> getAllOpenRooms() {
-    return _db.collection('rooms')
+    return _db
+        .collection('rooms')
         .where('isCompleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .snapshots()
@@ -1429,6 +1574,26 @@ class DatabaseService {
     }
   }
 
+  Future<void> updateUserNickname(String uid, String newNickname) async {
+    try {
+      // Verifica che il nuovo nickname sia unico
+      final bool isUnique = await isNicknameUnique(newNickname);
+      if (!isUnique) {
+        throw Exception('Il nickname è già in uso');
+      }
+
+      // Aggiorna il nickname nel database
+      await _db.collection('users').doc(uid).update({
+        'nickname': newNickname,
+      });
+
+      debugPrint('Nickname updated successfully for user: $uid');
+    } catch (e) {
+      debugPrint('Error updating nickname: $e');
+      rethrow;
+    }
+  }
+
   /// Aggiorna un campo specifico dell'utente
   Future<void> updateUserField(String uid, String field, dynamic value) async {
     try {
@@ -1444,7 +1609,8 @@ class DatabaseService {
   /// Verifica l'unicità del nickname
   Future<bool> isNicknameUnique(String nickname) async {
     try {
-      QuerySnapshot result = await _db.collection('users')
+      QuerySnapshot result = await _db
+          .collection('users')
           .where('nickname', isEqualTo: nickname)
           .limit(1)
           .get();
@@ -1477,18 +1643,12 @@ class DatabaseService {
     }
   }
 
-
-
-
-
-
-
-
   /// Ottiene statistiche dell'utente
   Future<Map<String, int>> getUserStats(String userId) async {
     try {
       // Conta le stanze completate come host
-      QuerySnapshot hostCompletions = await _db.collection('completions')
+      QuerySnapshot hostCompletions = await _db
+          .collection('completions')
           .where('hostId', isEqualTo: userId)
           .get();
 
@@ -1508,7 +1668,8 @@ class DatabaseService {
       }
 
       return {
-        'totalCompletions': hostCompletions.docs.length + participantCompletions,
+        'totalCompletions':
+            hostCompletions.docs.length + participantCompletions,
         'hostCompletions': hostCompletions.docs.length,
         'participantCompletions': participantCompletions,
       };
@@ -1524,7 +1685,8 @@ class DatabaseService {
 
   /// Ottiene la classifica con statistiche aggiuntive
   Stream<List<Map<String, dynamic>>> getDetailedLeaderboard() {
-    return _db.collection('users')
+    return _db
+        .collection('users')
         .orderBy('points', descending: true)
         .limit(50)
         .snapshots()
@@ -1536,7 +1698,7 @@ class DatabaseService {
         final data = doc.data() as Map<String, dynamic>?;
         if (data != null) {
           UserModel user = UserModel.fromMap(data, doc.id);
-          Map<String, int> stats = await getUserStats(user.uid);
+          Map<String, int> stats = await getUserStats(user.id);
 
           detailedUsers.add({
             'user': user,
@@ -1561,7 +1723,7 @@ class DatabaseService {
 
           // Rimuovi il partecipante dalla lista
           participants.removeWhere((participant) =>
-          participant is Map<String, dynamic> &&
+              participant is Map<String, dynamic> &&
               participant['userId'] == userId);
 
           await _db.collection('rooms').doc(roomId).update({
@@ -1592,7 +1754,8 @@ class DatabaseService {
 
   /// Ottiene le stanze aperte (non completate e con posti disponibili)
   Stream<List<RoomModel>> getOpenRooms() {
-    return _db.collection('rooms')
+    return _db
+        .collection('rooms')
         .where('isCompleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .snapshots()
@@ -1627,10 +1790,12 @@ class DatabaseService {
   /// Reclama un coaster e lo assegna come elemento casuale
   Future<bool> claimCoaster(String coasterId, String userId) async {
     try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      DocumentSnapshot doc =
+          await _db.collection('coasters').doc(coasterId).get();
       if (!doc.exists) return false;
 
-      CoasterModel coaster = CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+      CoasterModel coaster =
+          CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
 
       if (!coaster.isActive || coaster.claimedByUserId != null) {
         return false; // Già reclamato o disattivato
@@ -1654,7 +1819,8 @@ class DatabaseService {
   /// Ottiene un coaster specifico con gestione errori migliorata
   Future<CoasterModel?> getCoaster(String coasterId) async {
     try {
-      DocumentSnapshot doc = await _db.collection('coasters').doc(coasterId).get();
+      DocumentSnapshot doc =
+          await _db.collection('coasters').doc(coasterId).get();
       if (doc.exists) {
         return CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }
@@ -1714,7 +1880,8 @@ class DatabaseService {
 
       if (assignRecipe) {
         // Otteniamo una ricetta casuale
-        final QuerySnapshot recipes = await _db.collection('recipes').limit(20).get();
+        final QuerySnapshot recipes =
+            await _db.collection('recipes').limit(20).get();
         if (recipes.docs.isNotEmpty) {
           final int randomIndex = random.nextInt(recipes.docs.length);
           final String recipeId = recipes.docs[randomIndex].id;
@@ -1722,7 +1889,8 @@ class DatabaseService {
         }
       } else {
         // Otteniamo un ingrediente casuale
-        final QuerySnapshot ingredients = await _db.collection('ingredients').limit(20).get();
+        final QuerySnapshot ingredients =
+            await _db.collection('ingredients').limit(20).get();
         if (ingredients.docs.isNotEmpty) {
           final int randomIndex = random.nextInt(ingredients.docs.length);
           final String ingredientId = ingredients.docs[randomIndex].id;
@@ -1781,7 +1949,8 @@ class DatabaseService {
   /// Ottiene una ricetta specifica dal database
   Future<RecipeModel?> getRecipe(String recipeId) async {
     try {
-      DocumentSnapshot doc = await _db.collection('recipes').doc(recipeId).get();
+      DocumentSnapshot doc =
+          await _db.collection('recipes').doc(recipeId).get();
       if (doc.exists) {
         return RecipeModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }
@@ -1829,9 +1998,11 @@ class DatabaseService {
   /// Ottiene un ingrediente specifico dal database
   Future<IngredientModel?> getIngredient(String ingredientId) async {
     try {
-      DocumentSnapshot doc = await _db.collection('ingredients').doc(ingredientId).get();
+      DocumentSnapshot doc =
+          await _db.collection('ingredients').doc(ingredientId).get();
       if (doc.exists) {
-        return IngredientModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+        return IngredientModel.fromMap(
+            doc.data() as Map<String, dynamic>, doc.id);
       }
       return null;
     } catch (e) {
@@ -1843,7 +2014,8 @@ class DatabaseService {
   /// Crea un nuovo ingrediente nel database
   Future<String> createIngredient(IngredientModel ingredient) async {
     try {
-      final docRef = await _db.collection('ingredients').add(ingredient.toMap());
+      final docRef =
+          await _db.collection('ingredients').add(ingredient.toMap());
       return docRef.id;
     } catch (e) {
       debugPrint('Error creating ingredient: $e');
@@ -1852,7 +2024,8 @@ class DatabaseService {
   }
 
   /// Aggiorna un ingrediente esistente
-  Future<void> updateIngredient(String ingredientId, Map<String, dynamic> data) async {
+  Future<void> updateIngredient(
+      String ingredientId, Map<String, dynamic> data) async {
     try {
       await _db.collection('ingredients').doc(ingredientId).update(data);
     } catch (e) {
@@ -1861,17 +2034,16 @@ class DatabaseService {
     }
   }
 
-
   // =============================================================================
   // COMPLETIONS & LEADERBOARD
   // =============================================================================
 
   /// Crea un record di completamento
   Future<String> createCompletionRecord(
-      String hostId,
-      String recipeId,
-      List<String> participantIds,
-      ) async {
+    String hostId,
+    String recipeId,
+    List<String> participantIds,
+  ) async {
     try {
       final docRef = await _db.collection('completions').add({
         'hostId': hostId,
@@ -1889,7 +2061,8 @@ class DatabaseService {
 
   /// Ottiene la classifica generale
   Stream<List<UserModel>> getLeaderboard() {
-    return _db.collection('users')
+    return _db
+        .collection('users')
         .orderBy('points', descending: true)
         .limit(50)
         .snapshots()
@@ -1908,7 +2081,8 @@ class DatabaseService {
   String _generateShortId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random();
-    return List.generate(8, (index) => chars[random.nextInt(chars.length)]).join();
+    return List.generate(8, (index) => chars[random.nextInt(chars.length)])
+        .join();
   }
 
   // Crea sottobicchiere
@@ -1918,7 +2092,8 @@ class DatabaseService {
       String shortId = _generateShortId();
 
       // Verifica che l'ID non esista già
-      DocumentSnapshot existing = await _db.collection('coasters').doc(shortId).get();
+      DocumentSnapshot existing =
+          await _db.collection('coasters').doc(shortId).get();
       int attempts = 0;
       while (existing.exists && attempts < 10) {
         shortId = _generateShortId();
@@ -1947,11 +2122,11 @@ class DatabaseService {
     }
   }
 
-
   Future<void> clearCoasters(String uid) async {
     bool isAdmin = await isUserAdmin(uid);
     if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+      throw Exception(
+          'Non hai i permessi di amministratore per eseguire questa operazione');
     }
 
     WriteBatch batch = _db.batch();
@@ -1983,20 +2158,28 @@ class DatabaseService {
   Future<void> populateWithFakeData(String uid) async {
     bool isAdmin = await isUserAdmin(uid);
     if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+      throw Exception(
+          'Non hai i permessi di amministratore per eseguire questa operazione');
     }
 
     // Famiglie di ingredienti e pozioni
-    final List<String> families = ['Natura', 'Alchimia', 'Arcana', 'Elementale', 'Onirica'];
+    final List<String> families = [
+      'Natura',
+      'Alchimia',
+      'Arcana',
+      'Elementale',
+      'Onirica'
+    ];
 
     // Crea ingredienti fake
     for (int i = 0; i < 60; i++) {
       String family = families[i % families.length];
-      String id = 'ingredient_${i+1}';
+      String id = 'ingredient_${i + 1}';
 
       await _db.collection('ingredients').doc(id).set({
-        'name': 'Ingrediente ${i+1}',
-        'description': 'Un ingrediente di tipo $family. Utile per molte pozioni.',
+        'name': 'Ingrediente ${i + 1}',
+        'description':
+            'Un ingrediente di tipo $family. Utile per molte pozioni.',
         'imageUrl': '',
         'family': family,
       });
@@ -2005,7 +2188,7 @@ class DatabaseService {
     // Crea pozioni fake
     for (int i = 0; i < 60; i++) {
       String family = families[i % families.length];
-      String id = 'recipe_${i+1}';
+      String id = 'recipe_${i + 1}';
 
       // Ottieni 3 ingredienti random da famiglie diverse dalla famiglia della pozione
       List<String> requiredIngredients = [];
@@ -2013,13 +2196,14 @@ class DatabaseService {
       availableFamilies.remove(family);
 
       for (int j = 0; j < 3; j++) {
-        String ingredientFamily = availableFamilies[j % availableFamilies.length];
+        String ingredientFamily =
+            availableFamilies[j % availableFamilies.length];
         int baseIndex = families.indexOf(ingredientFamily) * 12;
         requiredIngredients.add('Ingrediente ${baseIndex + (i % 12) + 1}');
       }
 
       await _db.collection('recipes').doc(id).set({
-        'name': 'Pozione ${i+1}',
+        'name': 'Pozione ${i + 1}',
         'description': 'Una potente pozione di tipo $family.',
         'requiredIngredients': requiredIngredients,
         'imageUrl': '',
@@ -2032,13 +2216,15 @@ class DatabaseService {
   Future<void> clearIngredientsAndRecipes(String uid) async {
     bool isAdmin = await isUserAdmin(uid);
     if (!isAdmin) {
-      throw Exception('Non hai i permessi di amministratore per eseguire questa operazione');
+      throw Exception(
+          'Non hai i permessi di amministratore per eseguire questa operazione');
     }
 
     WriteBatch batch = _db.batch();
 
     // Ottieni tutti i documenti degli ingredienti
-    QuerySnapshot ingredientsSnapshot = await _db.collection('ingredients').get();
+    QuerySnapshot ingredientsSnapshot =
+        await _db.collection('ingredients').get();
     for (var doc in ingredientsSnapshot.docs) {
       batch.delete(doc.reference);
     }
@@ -2066,7 +2252,8 @@ class DatabaseService {
     }
 
     // Cerca tra gli ingredienti
-    DocumentSnapshot ingredientDoc = await _db.collection('ingredients').doc(id).get();
+    DocumentSnapshot ingredientDoc =
+        await _db.collection('ingredients').doc(id).get();
     if (ingredientDoc.exists) {
       Map<String, dynamic> data = ingredientDoc.data() as Map<String, dynamic>;
       return {
@@ -2102,7 +2289,8 @@ class DatabaseService {
   Future<void> seedGameElementsIfNeeded() async {
     try {
       final recipesSnapshot = await _db.collection('recipes').limit(1).get();
-      final ingredientsSnapshot = await _db.collection('ingredients').limit(1).get();
+      final ingredientsSnapshot =
+          await _db.collection('ingredients').limit(1).get();
 
       // Se non ci sono ricette o ingredienti, creiamone alcuni di base
       if (recipesSnapshot.docs.isEmpty || ingredientsSnapshot.docs.isEmpty) {
@@ -2121,36 +2309,59 @@ class DatabaseService {
       final List<Map<String, dynamic>> recipes = [
         {
           'name': 'Pozione dell\'Eureka',
-          'description': 'Un intruglio che stimola la mente e porta grandi idee',
-          'requiredIngredients': ['Radice di Mandragora', 'Polvere di Luna', 'Essenza di Ispirazione'],
+          'description':
+              'Un intruglio che stimola la mente e porta grandi idee',
+          'requiredIngredients': [
+            'Radice di Mandragora',
+            'Polvere di Luna',
+            'Essenza di Ispirazione'
+          ],
           'imageUrl': '',
           'family': 'Creatività'
         },
         {
           'name': 'Elisir della Fortuna',
           'description': 'Garantisce un giorno fortunato a chi lo beve',
-          'requiredIngredients': ['Quadrifoglio Dorato', 'Scaglie di Drago', 'Rugiada dell\'Alba'],
+          'requiredIngredients': [
+            'Quadrifoglio Dorato',
+            'Scaglie di Drago',
+            'Rugiada dell\'Alba'
+          ],
           'imageUrl': '',
           'family': 'Fortuna'
         },
         {
           'name': 'Filtro della Velocità',
           'description': 'Aumenta l\'agilità e i riflessi per breve tempo',
-          'requiredIngredients': ['Piuma di Fenice', 'Goccia di Mercurio', 'Petalo di Rosa Nera'],
+          'requiredIngredients': [
+            'Piuma di Fenice',
+            'Goccia di Mercurio',
+            'Petalo di Rosa Nera'
+          ],
           'imageUrl': '',
           'family': 'Movimento'
         },
         {
           'name': 'Infuso della Saggezza',
-          'description': 'Dona temporaneamente conoscenza e saggezza al bevitore',
-          'requiredIngredients': ['Foglia d\'Acanto', 'Cristallo di Quarzo', 'Inchiostro di Seppia'],
+          'description':
+              'Dona temporaneamente conoscenza e saggezza al bevitore',
+          'requiredIngredients': [
+            'Foglia d\'Acanto',
+            'Cristallo di Quarzo',
+            'Inchiostro di Seppia'
+          ],
           'imageUrl': '',
           'family': 'Conoscenza'
         },
         {
           'name': 'Tonico del Coraggio',
-          'description': 'Elimina la paura e dona coraggio in situazioni difficili',
-          'requiredIngredients': ['Crine di Leone', 'Ambra Fossile', 'Fiore del Vulcano'],
+          'description':
+              'Elimina la paura e dona coraggio in situazioni difficili',
+          'requiredIngredients': [
+            'Crine di Leone',
+            'Ambra Fossile',
+            'Fiore del Vulcano'
+          ],
           'imageUrl': '',
           'family': 'Coraggio'
         },
@@ -2166,7 +2377,8 @@ class DatabaseService {
         },
         {
           'name': 'Polvere di Luna',
-          'description': 'Raccolta durante la luna piena, ha proprietà magiche potenti',
+          'description':
+              'Raccolta durante la luna piena, ha proprietà magiche potenti',
           'imageUrl': '',
           'family': 'Elementi'
         },
@@ -2178,7 +2390,8 @@ class DatabaseService {
         },
         {
           'name': 'Quadrifoglio Dorato',
-          'description': 'Raro quadrifoglio che porta fortuna a chi lo possiede',
+          'description':
+              'Raro quadrifoglio che porta fortuna a chi lo possiede',
           'imageUrl': '',
           'family': 'Piante'
         },

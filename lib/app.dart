@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:potion_riders/screens/admin_screen.dart';
+import 'package:potion_riders/screens/auth/auth_wrapper.dart';
 import 'package:potion_riders/screens/scan_item_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
@@ -9,14 +10,15 @@ import 'package:potion_riders/screens/auth/complete_profile_screen.dart';
 import 'package:potion_riders/screens/home_screen.dart';
 
 class PotionRidersApp extends StatelessWidget {
-  const PotionRidersApp({super.key});
+  const PotionRidersApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
-        ChangeNotifierProvider(create: (_) => RoomService()),
+        // Aggiungi altri provider se necessario
+        // ChangeNotifierProvider(create: (_) => RoomService()),
       ],
       child: MaterialApp(
         title: 'Potion Riders',
@@ -37,7 +39,11 @@ class PotionRidersApp extends StatelessWidget {
             ),
           ),
         ),
+        // USA AuthWrapper come home - gestirà tutto il routing automaticamente
         home: const AuthWrapper(),
+        debugShowCheckedModeBanner: false,
+
+        // Routes opzionali per navigazione diretta (per debug o casi speciali)
         routes: {
           '/auth': (context) => const AuthWrapper(),
           '/complete-profile': (context) => const CompleteProfileScreen(),
@@ -45,46 +51,7 @@ class PotionRidersApp extends StatelessWidget {
           '/scan': (context) => const ScanItemScreen(),
           '/admin': (context) => const AdminScreen(),
         },
-        debugShowCheckedModeBanner: false,
       ),
-    );
-  }
-}
-
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
-
-    return StreamBuilder(
-      stream: authService.user,
-      builder: (_, AsyncSnapshot<String?> snapshot) {
-        if (snapshot.connectionState == ConnectionState.active) {
-          final String? userId = snapshot.data;
-
-          if (userId == null) {
-            return const LoginScreen();
-          }
-
-          // Se l'utente è nuovo e ha bisogno di completare il profilo
-          if (authService.isNewUser) {
-            // Reset del flag per evitare loop
-            authService.resetNewUserFlag();
-            // Reindirizza alla schermata di completamento profilo
-            return const CompleteProfileScreen();
-          }
-
-          // Altrimenti, vai alla home
-          return const HomeScreen();
-        }
-        return const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
-        );
-      },
     );
   }
 }

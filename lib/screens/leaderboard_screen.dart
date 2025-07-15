@@ -44,7 +44,7 @@ class LeaderboardScreen extends StatelessWidget {
                     itemCount: users.length,
                     itemBuilder: (context, index) {
                       final user = users[index];
-                      final isCurrentUser = user.uid == currentUserId;
+                      final isCurrentUser = user.id == currentUserId;
                       final isTopThree = index < 3;
 
                       return Card(

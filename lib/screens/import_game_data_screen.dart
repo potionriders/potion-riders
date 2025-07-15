@@ -5,7 +5,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/models/ingredient_model.dart';
-import 'dart:typed_data';
 
 import 'package:provider/provider.dart';
 
@@ -85,10 +84,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.science, color: Colors.purple),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Importa Pozioni e Ingredienti',
                         style: TextStyle(
@@ -129,10 +128,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.text_snippet, color: Colors.blue),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Format JSON',
                         style: TextStyle(
@@ -209,10 +208,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.tab, color: Colors.orange),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Importa Sottobicchieri',
                         style: TextStyle(
@@ -253,10 +252,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.text_snippet, color: Colors.blue),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Format JSON',
                         style: TextStyle(
@@ -324,10 +323,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.delete_forever, color: Colors.red),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Elimina Dati Esistenti',
                         style: TextStyle(
@@ -346,13 +345,13 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
                   const SizedBox(height: 16),
                   Card(
                     color: Colors.red.shade50,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
+                    child: const Padding(
+                      padding: EdgeInsets.all(12.0),
                       child: Row(
                         children: [
                           Icon(Icons.warning, color: Colors.red),
-                          const SizedBox(width: 8),
-                          const Expanded(
+                          SizedBox(width: 8),
+                          Expanded(
                             child: Text(
                               'Attenzione: questa azione cancellerà tutti i dati di gioco. '
                                   'Importa nuovi dati subito dopo per evitare problemi con l\'app.',
@@ -389,10 +388,10 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
                       Icon(Icons.delete, color: Colors.orange),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text(
                         'Elimina solo sottobicchieri',
                         style: TextStyle(
@@ -441,16 +440,16 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                const SizedBox(
+                SizedBox(
                   width: 24,
                   height: 24,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                   ),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Text(
                   'Operazione in corso...',
                   style: TextStyle(
@@ -467,12 +466,12 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
             const SizedBox(height: 8),
             Text(
               'Progresso: $_currentProgress / $_totalItems',
-              style: TextStyle(fontSize: 14),
+              style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 8),
             Text(
               'Successo: $_successItems | Falliti: $_failedItems',
-              style: TextStyle(fontSize: 14),
+              style: const TextStyle(fontSize: 14),
             ),
           ],
         ),
@@ -604,7 +603,7 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
         _currentProgress++;
         if (_currentProgress % 3 == 0) {
           setState(() {});
-          await Future.delayed(Duration(milliseconds: 300));
+          await Future.delayed(const Duration(milliseconds: 300));
         }
       }
 
@@ -638,7 +637,7 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
         _currentProgress++;
         if (_currentProgress % 3 == 0) {
           setState(() {});
-          await Future.delayed(Duration(milliseconds: 300));
+          await Future.delayed(const Duration(milliseconds: 300));
         }
       }
 
@@ -780,7 +779,7 @@ class _ImportGameDataScreenState extends State<ImportGameDataScreen> with Single
         _currentProgress++;
         if (_currentProgress % 3 == 0) {
           setState(() {});
-          await Future.delayed(Duration(milliseconds: 300));
+          await Future.delayed(const Duration(milliseconds: 300));
         }
       }
 

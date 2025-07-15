@@ -4,7 +4,6 @@ import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/room_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
-import 'package:potion_riders/models/user_model.dart';
 import 'package:potion_riders/models/coaster_model.dart';
 import 'package:potion_riders/screens/room_management_screen.dart';
 import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
@@ -233,7 +232,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
         if (room == null) {
           return _buildErrorCard(
             'Stanza Non Trovata',
-            'La stanza con ID "${_scannedRoomId}" non esiste o non è più disponibile.',
+            'La stanza con ID "$_scannedRoomId" non esiste o non è più disponibile.',
             Icons.error,
             Colors.red,
             actionButton: ElevatedButton.icon(

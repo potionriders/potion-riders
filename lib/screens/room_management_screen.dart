@@ -5,8 +5,6 @@ import 'package:potion_riders/services/room_service.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/models/room_model.dart';
 import 'package:potion_riders/models/recipe_model.dart';
-import 'package:potion_riders/models/user_model.dart';
-import 'package:potion_riders/models/ingredient_model.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 class RoomManagementScreen extends StatefulWidget {

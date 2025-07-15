@@ -1,170 +1,154 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:potion_riders/services/auth_service.dart';
-import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/screens/auth/login_screen.dart';
-import 'package:potion_riders/screens/auth/complete_profile_screen.dart';
 import 'package:potion_riders/screens/home_screen.dart';
-import 'package:potion_riders/models/user_model.dart';
 
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
+import '../house_selection_screen.dart';
+import 'complete_profile_screen.dart';
+
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({Key? key}) : super(key: key);
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  User? _currentUser;
+  bool _hasTriggeredCheck = false;
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
-    final dbService = DatabaseService();
-
-    return StreamBuilder(
-      stream: authService.user,
-      builder: (_, AsyncSnapshot<String?> snapshot) {
-        if (snapshot.connectionState == ConnectionState.active) {
-          final String? userId = snapshot.data;
-
-          if (userId == null) {
-            return const LoginScreen();
-          }
-
-          // Se l'utente è autenticato, verifica se esiste nel database
-          return FutureBuilder<void>(
-            future: _waitForUserData(dbService, userId),
-            builder: (context, futureSnapshot) {
-              if (futureSnapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('Sincronizzazione dati...'),
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              if (futureSnapshot.hasError) {
-                return Scaffold(
-                  body: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error, size: 64, color: Colors.red),
-                        const SizedBox(height: 16),
-                        Text('Errore: ${futureSnapshot.error}'),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await authService.logout();
-                          },
-                          child: const Text('Riprova'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              // Ora controlla se è un nuovo utente
-              if (authService.isNewUser) {
-                // Reset del flag per evitare loop
-                authService.resetNewUserFlag();
-                return const CompleteProfileScreen();
-              }
-
-              // Verifica che l'utente esista effettivamente nel database
-              return StreamBuilder<UserModel?>(
-                stream: dbService.getUser(userId),
-                builder: (context, userSnapshot) {
-                  if (userSnapshot.connectionState == ConnectionState.waiting) {
-                    return const Scaffold(
-                      body: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text('Caricamento profilo...'),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (userSnapshot.hasError) {
-                    return Scaffold(
-                      body: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error, size: 64, color: Colors.red),
-                            const SizedBox(height: 16),
-                            Text('Errore caricamento profilo: ${userSnapshot.error}'),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () async {
-                                await authService.logout();
-                              },
-                              child: const Text('Esci e riprova'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  final user = userSnapshot.data;
-                  if (user == null) {
-                    // L'utente non esiste nel database, riporta al completamento profilo
-                    return const CompleteProfileScreen();
-                  }
-
-                  // Tutto OK, vai alla home
-                  return const HomeScreen();
-                },
-              );
-            },
-          );
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // Loading durante verifica auth
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildLoadingScreen('Verificando autenticazione...');
         }
 
-        return const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
+        final user = snapshot.data;
+
+        // Se non è autenticato, mostra login
+        if (user == null) {
+          _resetState();
+          return const LoginScreen();
+        }
+
+        // Se è un nuovo login, triggera il check onboarding
+        if (_currentUser?.uid != user.uid) {
+          _currentUser = user;
+          _hasTriggeredCheck = false;
+
+          // Triggera check onboarding per utenti esistenti
+          // (per nuovi utenti, il stage è già settato in register/google)
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!_hasTriggeredCheck) {
+              _triggerOnboardingCheck();
+            }
+          });
+        }
+
+        // Usa Consumer per ascoltare i cambi di onboarding stage
+        return Consumer<AuthService>(
+          builder: (context, authService, child) {
+            // Se sta ancora controllando lo status, mostra loading
+            if (authService.isCheckingStatus) {
+              return _buildLoadingScreen('Preparando il tuo profilo...');
+            }
+
+            // Mostra la schermata appropriata basata sullo stage
+            return _getScreenForStage(authService);
+          },
         );
       },
     );
   }
 
-  // Attende che i dati dell'utente siano disponibili nel database
-  Future<void> _waitForUserData(DatabaseService dbService, String userId) async {
-    // Attendi un massimo di 10 secondi per la sincronizzazione
-    const maxWaitTime = Duration(seconds: 10);
-    const checkInterval = Duration(milliseconds: 500);
+  void _resetState() {
+    _currentUser = null;
+    _hasTriggeredCheck = false;
+  }
 
-    final startTime = DateTime.now();
+  void _triggerOnboardingCheck() {
+    if (_hasTriggeredCheck) return;
 
-    while (DateTime.now().difference(startTime) < maxWaitTime) {
-      try {
-        final user = await dbService.getUser(userId).first.timeout(
-          const Duration(seconds: 2),
+    _hasTriggeredCheck = true;
+    final authService = Provider.of<AuthService>(context, listen: false);
+
+    // Solo se lo stage è ancora "none", controlla lo status
+    if (authService.onboardingStage == OnboardingStage.none) {
+      debugPrint('🔍 Triggering onboarding check for existing user');
+      authService.checkUserOnboardingStatus();
+    }
+  }
+
+  Widget _getScreenForStage(AuthService authService) {
+    debugPrint('🎯 Current stage: ${authService.onboardingStage}');
+
+    switch (authService.onboardingStage) {
+      case OnboardingStage.completeProfile:
+        return CompleteProfileScreen(
+          initialNickname: authService.pendingUserData?['nickname'] ?? '',
+          onProfileCompleted: (String nickname) async {
+            try {
+              await authService.completeProfile(nickname);
+            } catch (e) {
+              debugPrint('Error completing profile: $e');
+              _showError('Errore durante il completamento del profilo: $e');
+            }
+          },
         );
 
-        if (user != null) {
-          // Utente trovato, esci dal loop
-          return;
-        }
-      } catch (e) {
-        // Continua a provare se c'è un errore
-        print('Tentativo fallito, riprovo: $e');
-      }
+      case OnboardingStage.selectHouse:
+        return HouseSelectionScreen(
+          isNewUser: authService.pendingUserData?['authType'] != 'migration',
+          onHouseSelected: (String selectedHouse) async {
+            try {
+              await authService.completeOnboarding(selectedHouse);
+            } catch (e) {
+              debugPrint('Error completing onboarding: $e');
+              _showError('Errore durante la selezione casata: $e');
+            }
+          },
+        );
 
-      // Attendi prima del prossimo tentativo
-      await Future.delayed(checkInterval);
+      case OnboardingStage.none:
+      default:
+        return const HomeScreen();
     }
+  }
 
-    // Se arriviamo qui, significa che abbiamo aspettato abbastanza
-    // Non lanciamo errore, lasciamo che il resto del codice gestisca
+  Widget _buildLoadingScreen(String message) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 }

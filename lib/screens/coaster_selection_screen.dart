@@ -97,11 +97,11 @@ class _CoasterSelectionScreenState extends State<CoasterSelectionScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.blue.shade200),
               ),
-              child: Column(
+              child: const Column(
                 children: [
-                  const Icon(Icons.help_outline, color: Colors.blue, size: 36),
-                  const SizedBox(height: 8),
-                  const Text(
+                  Icon(Icons.help_outline, color: Colors.blue, size: 36),
+                  SizedBox(height: 8),
+                  Text(
                     'Scegli quale lato del sottobicchiere utilizzare',
                     style: TextStyle(
                       fontSize: 18,
@@ -109,8 +109,8 @@ class _CoasterSelectionScreenState extends State<CoasterSelectionScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
+                  SizedBox(height: 8),
+                  Text(
                     'Una volta scelto, non potrai cambiare la tua decisione',
                     textAlign: TextAlign.center,
                   ),

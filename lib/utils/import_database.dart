@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:potion_riders/services/database_service.dart';
-import 'dart:typed_data';
 
 class ImportCoastersJsonScreen extends StatefulWidget {
   const ImportCoastersJsonScreen({super.key});
@@ -166,7 +165,7 @@ class _ImportCoastersJsonScreenState extends State<ImportCoastersJsonScreen> {
                         ),
                         const SizedBox(height: 16),
                         // Mostra un'anteprima dei primi 3 sottobicchieri
-                        if (_parsedCoasters.length > 0)
+                        if (_parsedCoasters.isNotEmpty)
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
@@ -208,7 +207,7 @@ class _ImportCoastersJsonScreenState extends State<ImportCoastersJsonScreen> {
                             ),
                           ),
                         const SizedBox(height: 16),
-                        if (_parsedCoasters.length > 0 && _processedCoasters == 0)
+                        if (_parsedCoasters.isNotEmpty && _processedCoasters == 0)
                           ElevatedButton.icon(
                             onPressed: _isLoading ? null : () => _uploadCoasters(),
                             icon: const Icon(Icons.cloud_upload),

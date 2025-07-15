@@ -1,35 +1,73 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/database_service.dart';
-import 'package:potion_riders/screens/home_screen.dart';
 
 class CompleteProfileScreen extends StatefulWidget {
-  const CompleteProfileScreen({super.key});
+  final String initialNickname;
+  final Function(String nickname)? onProfileCompleted; // OPZIONALE
+  final String? title; // TITOLO PERSONALIZZABILE
+  final bool canGoBack; // SE PUÒ TORNARE INDIETRO
+
+  const CompleteProfileScreen({
+    Key? key,
+    this.initialNickname = '',
+    this.onProfileCompleted, // NON PIÙ REQUIRED
+    this.title,
+    this.canGoBack = false,
+  }) : super(key: key);
 
   @override
   _CompleteProfileScreenState createState() => _CompleteProfileScreenState();
 }
 
-class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
+class _CompleteProfileScreenState extends State<CompleteProfileScreen>
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  String _nickname = '';
+  late TextEditingController _nicknameController;
   bool _isLoading = false;
   final DatabaseService _dbService = DatabaseService();
+
+  late AnimationController _animationController;
+  late Animation<double> _slideAnimation;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-    // Pre-compila il nickname se disponibile
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      if (auth.currentUser?.displayName != null) {
-        setState(() {
-          _nickname = auth.currentUser!.displayName!;
-        });
-      }
-    });
+    _nicknameController = TextEditingController(text: widget.initialNickname);
+
+    // Setup animazioni
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<double>(
+      begin: 0.3,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutBack,
+    ));
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    ));
+
+    // Avvia animazione
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _nicknameController.dispose();
+    _animationController.dispose();
+    super.dispose();
   }
 
   @override
@@ -38,154 +76,357 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Completa il tuo profilo'),
-        automaticallyImplyLeading: false,
+        title: Text(widget.title ?? 'Completa il tuo profilo'),
+        automaticallyImplyLeading: widget.canGoBack, // Mostra freccia indietro solo se permesso
+        backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 16),
-                // Icona o avatar
-                Center(
-                  child: CircleAvatar(
-                    radius: 60,
-                    backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-                    backgroundImage: authService.currentUser?.photoURL != null
-                        ? NetworkImage(authService.currentUser!.photoURL!)
-                        : null,
-                    child: authService.currentUser?.photoURL == null
-                        ? Icon(
-                      Icons.person,
-                      size: 60,
-                      color: Theme.of(context).primaryColor,
-                    )
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Benvenuto in Potion Riders!',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Per iniziare, abbiamo bisogno di qualche informazione in più.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                TextFormField(
-                  initialValue: _nickname,
-                  decoration: InputDecoration(
-                    labelText: 'Nickname',
-                    hintText: 'Come vuoi essere chiamato nel gioco?',
-                    prefixIcon: const Icon(Icons.person),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Inserisci un nickname';
-                    }
-                    return null;
-                  },
-                  onSaved: (value) => _nickname = value!,
-                  onChanged: (value) => _nickname = value,
-                ),
-                const SizedBox(height: 32),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton(
-                  onPressed: () => _saveProfile(authService),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12.0),
-                    child: Text(
-                      'Inizia a giocare',
-                      style: TextStyle(fontSize: 16),
+      body: AnimatedBuilder(
+        animation: _animationController,
+        builder: (context, child) {
+          return Transform.translate(
+            offset: Offset(0, _slideAnimation.value * 100),
+            child: Opacity(
+              opacity: _fadeAnimation.value,
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 20),
+
+                        // Avatar dell'utente
+                        _buildUserAvatar(authService),
+
+                        const SizedBox(height: 32),
+
+                        // Titolo e descrizione
+                        _buildHeader(),
+
+                        const SizedBox(height: 40),
+
+                        // Campo nickname
+                        _buildNicknameField(),
+
+                        const SizedBox(height: 32),
+
+                        // Info aggiuntive
+                        _buildInfoCard(),
+
+                        const SizedBox(height: 40),
+
+                        // Bottone continua
+                        _buildContinueButton(authService),
+
+                        const SizedBox(height: 16),
+
+                        // Bottone logout/indietro
+                        _buildSecondaryButton(authService),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () async {
-                    // In caso l'utente voglia annullare, si disconnette
-                    await authService.logout();
-                    Navigator.pushReplacementNamed(context, '/auth');
-                  },
-                  child: const Text('Annulla'),
-                ),
-              ],
+              ),
             ),
-          ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildUserAvatar(AuthService authService) {
+    return Center(
+      child: Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.purple, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.withOpacity(0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: CircleAvatar(
+          radius: 60,
+          backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+          backgroundImage: authService.currentUser?.photoURL != null
+              ? NetworkImage(authService.currentUser!.photoURL!)
+              : null,
+          child: authService.currentUser?.photoURL == null
+              ? Icon(
+            Icons.person,
+            size: 60,
+            color: Theme.of(context).primaryColor,
+          )
+              : null,
         ),
       ),
     );
   }
 
+  Widget _buildHeader() {
+    return Column(
+      children: [
+        Text(
+          widget.onProfileCompleted != null
+              ? 'Benvenuto in Potion Riders!'
+              : 'Aggiorna il tuo profilo',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).primaryColor,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          widget.onProfileCompleted != null
+              ? 'Per iniziare la tua avventura alchemica, abbiamo bisogno di scegliere il tuo nome da esploratore.'
+              : 'Modifica il tuo nickname per personalizzare il tuo profilo.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.grey[600],
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNicknameField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Il tuo nickname',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _nicknameController,
+          decoration: InputDecoration(
+            hintText: 'Come vuoi essere chiamato nel gioco?',
+            prefixIcon: const Icon(Icons.person_outline),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2),
+            ),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Inserisci un nickname';
+            }
+            if (value.length < 3) {
+              return 'Il nickname deve avere almeno 3 caratteri';
+            }
+            if (value.length > 20) {
+              return 'Il nickname non può superare 20 caratteri';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue[700]),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Informazioni',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue[700],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '• Il nickname sarà visibile agli altri giocatori\n'
+                '• Potrai cambiarlo successivamente dalle impostazioni\n'
+                '• Deve essere unico nel gioco',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.blue[800],
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContinueButton(AuthService authService) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      height: 56,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : () => _saveProfile(authService),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Theme.of(context).primaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: _isLoading ? 0 : 4,
+        ),
+        child: _isLoading
+            ? const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        )
+            : Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.arrow_forward),
+            const SizedBox(width: 8),
+            Text(
+              widget.onProfileCompleted != null ? 'Continua' : 'Salva',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecondaryButton(AuthService authService) {
+    if (widget.canGoBack) {
+      // Se può tornare indietro, mostra bottone indietro
+      return TextButton(
+        onPressed: _isLoading ? null : () => Navigator.pop(context),
+        child: Text(
+          'Annulla',
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+          ),
+        ),
+      );
+    } else if (widget.onProfileCompleted != null) {
+      // Se è nel flusso onboarding, mostra logout
+      return TextButton(
+        onPressed: _isLoading ? null : () async {
+          await authService.logout();
+          // Il logout triggerà automaticamente il rebuild dell'AuthWrapper
+        },
+        child: Text(
+          'Esci e torna al login',
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+          ),
+        ),
+      );
+    } else {
+      // Se è standalone, non mostra niente
+      return const SizedBox.shrink();
+    }
+  }
+
   Future<void> _saveProfile(AuthService authService) async {
     if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
       setState(() => _isLoading = true);
 
       try {
-        if (authService.currentUser == null) {
-          throw Exception('Utente non autenticato');
-        }
+        final nickname = _nicknameController.text.trim();
 
-        final uid = authService.currentUser!.uid;
-
-        // Verifichiamo l'unicità del nickname
-        final bool isUnique = await _dbService.isNicknameUnique(_nickname);
-
+        // Verifica unicità nickname
+        final bool isUnique = await _dbService.isNicknameUnique(nickname);
         if (!isUnique) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nickname già in uso, scegline un altro')),
-          );
-          setState(() => _isLoading = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Il nickname è già in uso, scegline un altro'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
           return;
         }
 
-        // Aggiorna il nickname in Firestore
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .update({'nickname': _nickname});
+        if (widget.onProfileCompleted != null) {
+          // CASO 1: Flusso onboarding - usa callback
+          await widget.onProfileCompleted!(nickname);
 
-        // Assegna un elemento di gioco casuale se non ne ha già uno
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-        final userData = userDoc.data();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Profilo completato! Ora scegli la tua casata.'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          // CASO 2: Uso standalone - aggiorna direttamente il database
+          final user = authService.currentUser;
+          if (user != null) {
+            await _dbService.updateUserNickname(user.uid, nickname);
 
-        if (userData != null &&
-            userData['currentRecipeId'] == null &&
-            userData['currentIngredientId'] == null) {
-          await _dbService.assignRandomGameElement(uid);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Nickname aggiornato con successo!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+
+              // Se può tornare indietro, lo fa automaticamente
+              if (widget.canGoBack) {
+                Navigator.pop(context);
+              }
+            }
+          }
         }
 
-        // Vai alla home page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Errore: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Errore: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       } finally {
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }

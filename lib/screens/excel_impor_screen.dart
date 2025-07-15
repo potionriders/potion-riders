@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:potion_riders/services/database_service.dart';
 import 'package:potion_riders/utils/excel_to_json_converter.dart';
 import 'package:potion_riders/models/recipe_model.dart';
 import 'package:potion_riders/models/ingredient_model.dart';
-import 'dart:typed_data';
 
 class ExcelImportScreen extends StatefulWidget {
   const ExcelImportScreen({super.key});
@@ -53,14 +51,14 @@ class _ExcelImportScreenState extends State<ExcelImportScreen> {
   List<IngredientModel> _availableIngredients = [];
 
   // Maps for name to ID lookups
-  Map<String, String> _recipeNameToId = {};
-  Map<String, String> _ingredientNameToId = {};
+  final Map<String, String> _recipeNameToId = {};
+  final Map<String, String> _ingredientNameToId = {};
 
   // Set of existing coasters to avoid duplicates
-  Set<String> _existingCoasters = {};
+  final Set<String> _existingCoasters = {};
 
   // For debug info
-  List<String> _debugMessages = [];
+  final List<String> _debugMessages = [];
 
   @override
   void dispose() {
@@ -834,8 +832,8 @@ class _ExcelImportScreenState extends State<ExcelImportScreen> {
             _logDebug('Processando coaster: "$pozioneName", "$ingredienteName"');
             
             // Find matching recipe and ingredient
-            String? recipeId = null;
-            String? ingredientId = null;
+            String? recipeId;
+            String? ingredientId;
             
             // Try exact match for recipe
             if (_recipeNameToId.containsKey(pozioneName)) {

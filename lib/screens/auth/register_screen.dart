@@ -1,8 +1,12 @@
+// ===================================================================
+// REGISTER SCREEN SEMPLIFICATA
+// File: screens/auth/register_screen.dart
+// ===================================================================
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:potion_riders/services/auth_service.dart';
-import 'package:potion_riders/screens/home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -55,11 +59,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-
                     Text(
-                      'Crea un nuovo account',
+                      'Potion Riders',
                       style: TextStyle(
-                        fontSize: 24,
+                        fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).primaryColor,
                       ),
@@ -67,56 +70,62 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Registrati per giocare a Potion Riders',
+                      'Crea il tuo account',
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.grey[600],
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 40),
+
+                    // Campo Nickname
                     TextFormField(
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: const Icon(Icons.email),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Inserisci la tua email';
-                        }
-                        return null;
-                      },
-                      onSaved: (value) => _email = value!,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Nickname',
-                        prefixIcon: const Icon(Icons.person),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Inserisci un nickname';
+                        }
+                        if (value.length < 3) {
+                          return 'Il nickname deve avere almeno 3 caratteri';
                         }
                         return null;
                       },
                       onSaved: (value) => _nickname = value!,
                     ),
                     const SizedBox(height: 16),
+
+                    // Campo Email
                     TextFormField(
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: Icon(Icons.email),
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Inserisci una email';
+                        }
+                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                          return 'Inserisci una email valida';
+                        }
+                        return null;
+                      },
+                      onSaved: (value) => _email = value!,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Campo Password
+                    TextFormField(
+                      decoration: const InputDecoration(
                         labelText: 'Password',
-                        prefixIcon: const Icon(Icons.lock),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        prefixIcon: Icon(Icons.lock),
+                        border: OutlineInputBorder(),
                       ),
                       obscureText: true,
                       validator: (value) {
@@ -124,44 +133,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return 'Inserisci una password';
                         }
                         if (value.length < 6) {
-                          return 'La password deve contenere almeno 6 caratteri';
+                          return 'La password deve avere almeno 6 caratteri';
                         }
                         return null;
                       },
                       onSaved: (value) => _password = value!,
                     ),
                     const SizedBox(height: 24),
+
+                    // Bottone Registrazione
                     _isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : ElevatedButton(
                       onPressed: () => _register(authService),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12.0),
-                        child: Text(
-                          'Registrati',
-                          style: TextStyle(fontSize: 16),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
+                      ),
+                      child: const Text(
+                        'Registrati',
+                        style: TextStyle(fontSize: 16),
                       ),
                     ),
                     const SizedBox(height: 16),
+
                     const Row(
                       children: [
                         Expanded(child: Divider()),
                         Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Text('OPPURE'),
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('oppure'),
                         ),
                         Expanded(child: Divider()),
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // Bottone Google
                     _isGoogleLoading
                         ? const Center(child: CircularProgressIndicator())
                         : OutlinedButton.icon(
                       onPressed: () => _registerWithGoogle(authService),
-                      // Utilizzo dell'icona Google invece dell'immagine
                       icon: const Icon(
-                        Icons.g_mobiledata,  // Icona "G" per Google
+                        Icons.g_mobiledata,
                         size: 36,
                         color: Colors.red,
                       ),
@@ -188,6 +204,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // SEMPLIFICATA: Non gestisce più la navigazione manualmente
   Future<void> _register(AuthService authService) async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
@@ -195,10 +212,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       try {
         await authService.register(_email, _password, _nickname);
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        // NAVIGAZIONE AUTOMATICA: AuthWrapper gestirà il flusso
+
       } on FirebaseAuthException catch (e) {
         String errorMessage = 'Si è verificato un errore durante la registrazione';
 
@@ -206,14 +221,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
           errorMessage = 'La password fornita è troppo debole';
         } else if (e.code == 'email-already-in-use') {
           errorMessage = 'L\'account esiste già per questa email';
+        } else if (e.code == 'nickname-already-in-use') {
+          errorMessage = e.message ?? 'Il nickname è già in uso';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Errore durante la registrazione: $e')),
+          SnackBar(
+            content: Text('Errore durante la registrazione: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       } finally {
         setState(() => _isLoading = false);
@@ -221,21 +244,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  // SEMPLIFICATA: Non gestisce più la navigazione manualmente
   Future<void> _registerWithGoogle(AuthService authService) async {
     setState(() => _isGoogleLoading = true);
 
     try {
       final result = await authService.signInWithGoogle();
+      // NAVIGAZIONE AUTOMATICA: AuthWrapper gestirà il flusso
 
       if (result != null) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        // Messaggio opzionale
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Accesso effettuato con successo!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore durante la registrazione con Google: $e')),
+        SnackBar(
+          content: Text('Errore durante la registrazione con Google: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       setState(() => _isGoogleLoading = false);

@@ -530,9 +530,9 @@ class _RoomListScreenState extends State<RoomListScreen> with TickerProviderStat
               color: Colors.red[300],
             ),
             const SizedBox(height: 20),
-            Text(
+            const Text(
               'Errore',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87,

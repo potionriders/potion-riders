@@ -90,10 +90,10 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
               color: Colors.black.withOpacity(0.7),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Column(
+            child: const Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'Inquadra il QR code del sottobicchiere',
                   style: TextStyle(
                     color: Colors.white,
@@ -103,7 +103,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
                   textAlign: TextAlign.center,
                 ),
                 if (kIsWeb) ...[
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     'Assicurati di aver consentito l\'accesso alla fotocamera',
                     style: TextStyle(

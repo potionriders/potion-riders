@@ -66,10 +66,10 @@ class UserInfo extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context) {
-    if (user.photoUrl != null && user.photoUrl!.isNotEmpty) {
+    if (user.photoUrl.isNotEmpty) {
       return CircleAvatar(
         radius: 24,
-        backgroundImage: NetworkImage(user.photoUrl!),
+        backgroundImage: NetworkImage(user.photoUrl),
         backgroundColor: Colors.grey[200],
         onBackgroundImageError: (exception, stackTrace) {
           print('Error loading avatar: $exception');

@@ -141,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => _handleReturnCoaster(context, user.uid),
+              onPressed: () => _handleReturnCoaster(context, user.id),
               icon: const Icon(Icons.autorenew),
               label: const Text('Riconsegna e Ottieni Nuovo'),
               style: ElevatedButton.styleFrom(
@@ -266,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   CircleAvatar(
                     radius: 40,
                     backgroundColor: Colors.white.withOpacity(0.2),
-                    backgroundImage: user.photoUrl != null ? NetworkImage(user.photoUrl!) : null,
+                    backgroundImage: user.photoUrl != null ? NetworkImage(user.photoUrl) : null,
                     child: user.photoUrl == null
                         ? Text(
                       user.nickname.isNotEmpty ? user.nickname[0].toUpperCase() : '?',
@@ -455,7 +455,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 16),
         // Prima costruiamo la lista di azioni in base ai permessi dell'utente
         FutureBuilder<bool>(
-          future: _dbService.isUserAdmin(user.uid),
+          future: _dbService.isUserAdmin(user.id),
           builder: (context, snapshot) {
             final isAdmin = snapshot.data ?? false;
 
@@ -679,51 +679,58 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
         MaterialPageRoute(builder: (_) => const ScanItemScreen()),
       ),
-      child: const Icon(Icons.qr_code_scanner),
       tooltip: 'Scansiona QR Code',
+      child: const Icon(Icons.qr_code_scanner),
     );
   }
+
+  // ===================================================================
+// CORREZIONE PUNTEGGI UI in home_screen.dart
+// ===================================================================
+
+// SOSTITUISCI la funzione _showTutorialDialog esistente:
 
   void _showTutorialDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Come giocare a Potion Riders'),
-        content: SingleChildScrollView(
+        content: const SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Benvenuto in Potion Riders!',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
-              const Text('1. Ottieni un sottobicchiere dai punti di distribuzione in fiera'),
-              const SizedBox(height: 8),
-              const Text('2. Scansiona il QR code o inserisci l\'ID manualmente'),
-              const SizedBox(height: 8),
-              const Text('3. Scegli se usare il lato pozione o ingrediente (puoi cambiare dopo!)'),
-              const SizedBox(height: 8),
-              const Text('4. Se hai una pozione, crea una stanza'),
-              const SizedBox(height: 8),
-              const Text('5. Se hai un ingrediente, unisciti a una stanza'),
-              const SizedBox(height: 8),
-              const Text('6. Completa le pozioni per guadagnare punti!'),
-              const SizedBox(height: 16),
-              const Text(
+              SizedBox(height: 16),
+              Text('1. Ottieni un sottobicchiere dai punti di distribuzione in fiera'),
+              SizedBox(height: 8),
+              Text('2. Scansiona il QR code o inserisci l\'ID manualmente'),
+              SizedBox(height: 8),
+              Text('3. Scegli se usare il lato pozione o ingrediente (puoi cambiare dopo!)'),
+              SizedBox(height: 8),
+              Text('4. Se hai una pozione, crea una stanza'),
+              SizedBox(height: 8),
+              Text('5. Se hai un ingrediente, unisciti a una stanza'),
+              SizedBox(height: 8),
+              Text('6. Completa le pozioni per guadagnare punti!'),
+              SizedBox(height: 16),
+              Text(
                 'Punteggi:',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              const Text('• Chi ha la pozione: 10 punti'),
-              const Text('• Chi porta gli ingredienti: 5 punti'),
-              const SizedBox(height: 16),
-              const Text(
+              // CORREZIONE PUNTEGGI: da 10/5 a 12/3
+              Text('• Chi ha la pozione: 12 punti'),
+              Text('• Chi porta gli ingredienti: 3 punti'),
+              SizedBox(height: 16),
+              Text(
                 'Nuovo!',
                 style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
               ),
-              const Text('• Puoi cambiare l\'uso del sottobicchiere in qualsiasi momento!'),
-              const Text('• Usa il pulsante "Flip" nella card per alternare tra pozione e ingrediente'),
+              Text('• Puoi cambiare l\'uso del sottobicchiere in qualsiasi momento!'),
+              Text('• Usa il pulsante "Flip" nella card per alternare tra pozione e ingrediente'),
             ],
           ),
         ),
@@ -736,8 +743,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  // SOSTITUISCI i metodi stub nella home_screen.dart con queste implementazioni:
 
   Widget _buildNoCoasterSection(BuildContext context) {
     return Container(
@@ -819,7 +824,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: () async {
-                bool success = await _dbService.returnConsumedCoasterAndGetNew(user.uid);
+                bool success = await _dbService.returnConsumedCoasterAndGetNew(user.id);
                 if (success) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Nuovo sottobicchiere ottenuto!')),
@@ -842,7 +847,7 @@ class _HomeScreenState extends State<HomeScreen> {
         currentRecipeId: user.currentRecipeId,
         currentIngredientId: user.currentIngredientId,
         coaster: coaster,
-        userId: user.uid,
+        userId: user.id,
         onTapRecipe: () {
           if (user.currentRecipeId != null) {
             Navigator.push(

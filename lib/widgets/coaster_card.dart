@@ -257,13 +257,13 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.check_circle_rounded,
                     size: 48,
                     color: Colors.white,
                   ),
                   const SizedBox(height: 8),
-                  Text(
+                  const Text(
                     'CONSUMATO',
                     style: TextStyle(
                       fontSize: 20,
@@ -741,14 +741,14 @@ class _HomeScreenCoasterCardState extends State<HomeScreenCoasterCard>
   }
 
   Widget _buildLoadingCard(BuildContext context) {
-    return Card(
+    return const Card(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: EdgeInsets.all(16.0),
         child: Row(
           children: [
-            const CircularProgressIndicator(strokeWidth: 2),
-            const SizedBox(width: 16),
-            const Text('Caricamento elemento...'),
+            CircularProgressIndicator(strokeWidth: 2),
+            SizedBox(width: 16),
+            Text('Caricamento elemento...'),
           ],
         ),
       ),
