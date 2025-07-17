@@ -18,7 +18,7 @@ class PotionRidersApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
         // Aggiungi altri provider se necessario
-        // ChangeNotifierProvider(create: (_) => RoomService()),
+        ChangeNotifierProvider(create: (_) => RoomService()),
       ],
       child: MaterialApp(
         title: 'Potion Riders',
