@@ -89,37 +89,6 @@ class _CoasterSelectionScreenState extends State<CoasterSelectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Intestazione
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: const Column(
-                children: [
-                  Icon(Icons.help_outline, color: Colors.blue, size: 36),
-                  SizedBox(height: 8),
-                  Text(
-                    'Scegli quale lato del sottobicchiere utilizzare',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Una volta scelto, non potrai cambiare la tua decisione',
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Opzione Pozione
             _buildSelectionCard(
               title: 'Pozione',
               icon: Icons.science,
