@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:qrcode_reader_web/qrcode_reader_web.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class QrService {
   // Mantiene la stessa interfaccia per la generazione QR
@@ -43,7 +44,10 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
   bool _isProcessing = false;
   bool _hasPermission = false;
   String? _lastError;
-  List<QRCodeCapture> _captureHistory = [];
+  List<dynamic> _captureHistory = []; // Usa dynamic per supportare entrambi i tipi
+
+  // Controller per mobile scanner
+  MobileScannerController? _mobileScannerController;
 
   // Configurazioni scanner
   bool _isTransparentMode = false;
@@ -52,21 +56,33 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
   @override
   void initState() {
     super.initState();
-    _initializeWebScanner();
+    _initializeScanner();
   }
 
-  Future<void> _initializeWebScanner() async {
+  Future<void> _initializeScanner() async {
     if (kIsWeb) {
+      // Logica per web
       setState(() {
         _hasPermission = true;
         result = "Scanner web inizializzato";
       });
       print('DEBUG: Scanner web inizializzato con qrcode_reader_web');
     } else {
-      setState(() {
-        _lastError = "Questo scanner è ottimizzato solo per il web";
-        result = "Errore: Non supportato su mobile";
-      });
+      // Logica per Android/iOS
+      try {
+        _mobileScannerController = MobileScannerController();
+        setState(() {
+          _hasPermission = true;
+          result = "Scanner mobile inizializzato";
+        });
+        print('DEBUG: Scanner mobile inizializzato con mobile_scanner');
+      } catch (e) {
+        setState(() {
+          _lastError = "Errore inizializzazione mobile: $e";
+          result = "Errore scanner mobile";
+        });
+        print('❌ DEBUG: Errore scanner mobile: $e');
+      }
     }
   }
 
@@ -77,8 +93,8 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
         // Area scanner
         Expanded(
           flex: 4,
-          child: _hasPermission && kIsWeb
-              ? _buildWebScanner()
+          child: _hasPermission
+              ? (kIsWeb ? _buildWebScanner() : _buildMobileScanner())
               : _buildNotSupportedView(),
         ),
 
@@ -88,28 +104,105 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // Slider per dimensione scanner
-              if (kIsWeb) ...[
-                Text(
-                  'Dimensione scanner: ${_scannerSize.round()}px',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
+              // Risultato
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _lastError != null ? Colors.red[50] : Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _lastError != null ? Colors.red[200]! : Colors.blue[200]!,
                   ),
                 ),
-                Slider(
-                  value: _scannerSize,
-                  min: 200.0,
-                  max: 400.0,
-                  divisions: 8,
-                  onChanged: (value) {
-                    setState(() {
-                      _scannerSize = value;
-                    });
-                  },
+                child: Row(
+                  children: [
+                    Icon(
+                      _lastError != null ? Icons.error : Icons.info,
+                      color: _lastError != null ? Colors.red[700] : Colors.blue[700],
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _lastError ?? result,
+                        style: TextStyle(
+                          color: _lastError != null ? Colors.red[700] : Colors.blue[700],
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-              ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Slider per dimensione scanner
+              Text(
+                'Dimensione scanner: ${_scannerSize.round()}px',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                ),
+              ),
+              Slider(
+                value: _scannerSize,
+                min: 200.0,
+                max: 400.0,
+                divisions: 8,
+                onChanged: (value) {
+                  setState(() {
+                    _scannerSize = value;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Bottoni controllo
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (kIsWeb)
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isTransparentMode = !_isTransparentMode;
+                        });
+                      },
+                      icon: Icon(_isTransparentMode ? Icons.crop_square : Icons.crop_free),
+                      label: Text(_isTransparentMode ? 'Quadrato' : 'Trasparente'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isTransparentMode ? Colors.purple : Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+
+                  ElevatedButton.icon(
+                    onPressed: _testCallback,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Test'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+
+                  IconButton(
+                    onPressed: _showInfo,
+                    icon: const Icon(Icons.info_outline),
+                    tooltip: 'Informazioni Scanner',
+                  ),
+
+                  if (_captureHistory.isNotEmpty)
+                    IconButton(
+                      onPressed: _clearHistory,
+                      icon: const Icon(Icons.clear_all),
+                      tooltip: 'Pulisci cronologia',
+                    ),
+                ],
+              ),
             ],
           ),
         ),
@@ -167,11 +260,11 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
                 borderRadius: BorderRadius.circular(9),
                 child: _isTransparentMode
                     ? QRCodeReaderTransparentWidget(
-                  onDetect: _handleQRDetection,
+                  onDetect: _handleWebQRDetection,
                   targetSize: _scannerSize,
                 )
                     : QRCodeReaderSquareWidget(
-                  onDetect: _handleQRDetection,
+                  onDetect: _handleWebQRDetection,
                   size: _scannerSize,
                 ),
               ),
@@ -212,21 +305,118 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
     );
   }
 
+  Widget _buildMobileScanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Istruzioni
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info, color: Colors.green[700], size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Posiziona il QR code davanti alla camera mobile.',
+                      style: TextStyle(
+                        color: Colors.green[700],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Scanner mobile
+            Container(
+              width: _scannerSize,
+              height: _scannerSize,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: MobileScanner(
+                  controller: _mobileScannerController,
+                  onDetect: _handleMobileQRDetection,
+                  overlay: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.green, width: 2),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Indicatore modalità mobile
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.smartphone,
+                    size: 16,
+                    color: Colors.green[700],
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Scanner Mobile Attivo',
+                    style: TextStyle(
+                      color: Colors.green[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildNotSupportedView() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            kIsWeb ? Icons.error : Icons.phone_android,
+            _hasPermission ? Icons.error : Icons.camera_alt_outlined,
             size: 64,
             color: Colors.grey,
           ),
           const SizedBox(height: 16),
           Text(
-            kIsWeb
-                ? 'Errore di inizializzazione'
-                : 'Scanner ottimizzato per web',
+            _hasPermission
+                ? 'Errore di inizializzazione scanner'
+                : 'Scanner non disponibile',
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -234,32 +424,28 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
           ),
           const SizedBox(height: 8),
           Text(
-            kIsWeb
-                ? 'Ricarica la pagina per riprovare'
-                : 'Questo scanner funziona solo nel browser.\nUsa la versione web dell\'app.',
+            _lastError ?? 'Verifica i permessi della camera',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.grey),
           ),
           const SizedBox(height: 24),
-          if (kIsWeb)
-            ElevatedButton.icon(
-              onPressed: () {
-                // Simula un refresh dello stato
-                _initializeWebScanner();
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Riprova'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-              ),
+          ElevatedButton.icon(
+            onPressed: () {
+              _initializeScanner();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Riprova'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
             ),
+          ),
         ],
       ),
     );
   }
 
-  void _handleQRDetection(QRCodeCapture capture) {
+  void _handleWebQRDetection(QRCodeCapture capture) {
     if (_isProcessing) return;
 
     final String? code = capture.raw;
@@ -277,12 +463,53 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
 
     // Chiama la callback
     try {
-      print('DEBUG: Chiamando widget.onDetect');
+      print('DEBUG: Chiamando widget.onDetect per web');
       widget.onDetect(code);
     } catch (e) {
-      print('❌ DEBUG: Errore nella callback: $e');
+      print('❌ DEBUG: Errore nella callback web: $e');
       setState(() {
-        _lastError = 'Errore callback: $e';
+        _lastError = 'Errore callback web: $e';
+      });
+    }
+
+    // Previene rilevamenti multipli per 2 secondi
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          result = "Pronto per un nuovo QR";
+        });
+      }
+    });
+  }
+
+  void _handleMobileQRDetection(BarcodeCapture capture) {
+    if (_isProcessing) return;
+
+    final List<Barcode> barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+
+    final String? code = barcodes.first.rawValue;
+    if (code == null || code.isEmpty) return;
+
+    print('🎉 DEBUG: QR rilevato con mobile_scanner: $code');
+    print('DEBUG: Barcode data: ${barcodes.first.toString()}');
+
+    setState(() {
+      _isProcessing = true;
+      result = "QR rilevato: ${code.length > 30 ? '${code.substring(0, 30)}...' : code}";
+      _lastError = null;
+      _captureHistory.add(capture);
+    });
+
+    // Chiama la callback
+    try {
+      print('DEBUG: Chiamando widget.onDetect per mobile');
+      widget.onDetect(code);
+    } catch (e) {
+      print('❌ DEBUG: Errore nella callback mobile: $e');
+      setState(() {
+        _lastError = 'Errore callback mobile: $e';
       });
     }
 
@@ -327,29 +554,41 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.info, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('Scanner QR Web'),
+            Icon(Icons.info, color: kIsWeb ? Colors.blue : Colors.green),
+            const SizedBox(width: 8),
+            Text('Scanner QR ${kIsWeb ? "Web" : "Mobile"}'),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Scanner ottimizzato per applicazioni web utilizzando qrcode_reader_web.'),
+            Text('Scanner ottimizzato per ${kIsWeb ? "applicazioni web utilizzando qrcode_reader_web" : "dispositivi mobile utilizzando mobile_scanner"}.'),
             const SizedBox(height: 12),
             const Text('Caratteristiche:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text('• Due modalità di scansione'),
+            if (kIsWeb) ...[
+              const Text('• Due modalità di scansione (quadrata/trasparente)'),
+              const Text('• Performance ottimizzate per browser'),
+              const Text('• Gestione automatica permessi camera web'),
+            ] else ...[
+              const Text('• Scanner nativo per dispositivi mobili'),
+              const Text('• Performance ottimizzate per Android/iOS'),
+              const Text('• Gestione automatica permessi camera mobile'),
+            ],
             const Text('• Dimensione personalizzabile'),
-            const Text('• Performance ottimizzate per web'),
-            const Text('• Gestione automatica permessi camera'),
+            const Text('• Debug completo con logging'),
             const SizedBox(height: 12),
             Text(
               'QR rilevati in questa sessione: ${_captureHistory.length}',
               style: const TextStyle(fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Piattaforma: ${kIsWeb ? "Web Browser" : "Mobile App"}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -365,7 +604,8 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
 
   @override
   void dispose() {
-    // qrcode_reader_web gestisce automaticamente la pulizia delle risorse
+    // Pulizia risorse
+    _mobileScannerController?.dispose();
     super.dispose();
   }
 }
