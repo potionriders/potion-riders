@@ -677,7 +677,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
     print('DEBUG: Tentativo claim coaster: $coasterId');
 
     try {
-      final result = await _dbService.claimCoaster(uid, coasterId);
+      final result = await _dbService.claimCoaster(coasterId, uid);
 
       setState(() {
         if (result == true) {

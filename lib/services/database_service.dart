@@ -166,148 +166,149 @@ class DatabaseService {
     });
   }
 
-  Future<Map<String, dynamic>> validateIngredientMatch(
-      String roomId, String userId) async {
+  Future<Map<String, dynamic>> validateIngredientMatch(String roomId, String userId) async {
+    Map<String, dynamic> result = {
+      'canJoin': false,
+      'reason': '',
+      'userIngredient': '',
+      'requiredIngredients': <String>[],
+      'presentIngredients': <String>[],
+      'missingIngredients': <String>[],
+    };
+
     try {
-      final result = {
-        'canJoin': false,
-        'reason': '',
-        'userIngredient': '',
-        'requiredIngredients': <String>[],
-        'presentIngredients': <String>[],
-        'missingIngredients': <String>[],
-        'details': <String, dynamic>{},
-      };
+      debugPrint('🔍 Starting validation for roomId: $roomId, userId: $userId');
 
-      debugPrint(
-          '🔍 Validating ingredient match for user $userId in room $roomId');
-
-      // Step 1: Controlla che la stanza esista
-      final roomDoc = await _db.collection('rooms').doc(roomId).get();
-      if (!roomDoc.exists) {
+      // Step 1: Ottieni i dati della stanza
+      final roomSnapshot = await _db.collection('rooms').doc(roomId).get();
+      if (!roomSnapshot.exists) {
         result['reason'] = 'Stanza non trovata';
+        debugPrint('❌ Room not found');
         return result;
       }
 
-      final roomData = roomDoc.data() as Map<String, dynamic>;
+      final roomData = roomSnapshot.data() as Map<String, dynamic>;
+      debugPrint('📋 Room data obtained');
 
-      // Step 2: Controlli base della stanza
-      if (roomData['isCompleted'] == true) {
-        result['reason'] = 'La stanza è già completata';
-        return result;
-      }
-
-      if (roomData['hostId'] == userId) {
-        result['reason'] = 'Sei il creatore della stanza';
-        return result;
-      }
-
-      List<dynamic> participants = roomData['participants'] ?? [];
-      if (participants.length >= 3) {
-        result['reason'] = 'Stanza piena (massimo 3 partecipanti)';
-        return result;
-      }
-
-      bool alreadyParticipant = participants
-          .any((p) => p is Map<String, dynamic> && p['userId'] == userId);
-      if (alreadyParticipant) {
-        result['reason'] = 'Sei già un partecipante';
-        return result;
-      }
-
-      // Step 3: Controlla l'utente
-      final userDoc = await _db.collection('users').doc(userId).get();
-      if (!userDoc.exists) {
+      // Step 2: Ottieni i dati dell'utente
+      final userSnapshot = await _db.collection('users').doc(userId).get();
+      if (!userSnapshot.exists) {
         result['reason'] = 'Utente non trovato';
+        debugPrint('❌ User not found');
         return result;
       }
 
-      final userData = userDoc.data() as Map<String, dynamic>;
-      if (userData['currentIngredientId'] == null) {
-        result['reason'] = 'Ingrediente non assegnato';
+      final userData = userSnapshot.data() as Map<String, dynamic>;
+      debugPrint('👤 User data obtained');
+
+      // Step 3: Controlla l'ingrediente dell'utente
+      final String? userIngredient = userData['currentIngredientId'] as String?;
+      if (userIngredient == null || userIngredient.isEmpty) {
+        result['reason'] = 'Non hai un ingrediente assegnato';
+        debugPrint('❌ User has no ingredient assigned');
         return result;
       }
 
-      final userIngredient = userData['currentIngredientId'] as String;
-      result['userIngredient'] = userIngredient;
+      debugPrint('🧪 User ingredient ID: $userIngredient');
 
-      List<dynamic> userRooms = userData['rooms'] ?? [];
-      if (userRooms.isNotEmpty) {
-        result['reason'] =
-            'Utente già in ${userRooms.length} stanza/e attiva/e';
+      // Step 4: Converti l'ID dell'ingrediente utente in nome - CON DEBUG DETTAGLIATO
+      String userIngredientName;
+      try {
+        debugPrint('🔍 Looking up ingredient name for ID: $userIngredient');
+        userIngredientName = await getIngredientNameById(userIngredient);
+        debugPrint('✅ User ingredient name resolved: $userIngredientName');
+      } catch (e) {
+        debugPrint('❌ ERRORE nel risolvere nome ingrediente utente: $e');
+        result['reason'] = 'Errore nel recupero del nome ingrediente utente: $e';
         return result;
       }
 
-      // Step 4: Ottieni la ricetta e controlla gli ingredienti
-      final recipeId = roomData['recipeId'] as String;
-      final recipeDoc = await _db.collection('recipes').doc(recipeId).get();
+      // Step 5: Ottieni la ricetta e i suoi ingredienti richiesti
+      final String? recipeId = roomData['recipeId'] as String?;
+      if (recipeId == null) {
+        result['reason'] = 'Stanza senza ricetta associata';
+        debugPrint('❌ Room has no recipe');
+        return result;
+      }
 
-      if (!recipeDoc.exists) {
+      debugPrint('🧪 Recipe ID: $recipeId');
+
+      final recipeSnapshot = await _db.collection('recipes').doc(recipeId).get();
+      if (!recipeSnapshot.exists) {
         result['reason'] = 'Ricetta non trovata';
+        debugPrint('❌ Recipe not found');
         return result;
       }
 
-      final recipeData = recipeDoc.data() as Map<String, dynamic>;
-      final requiredIngredients =
-          List<String>.from(recipeData['ingredients'] ?? []);
+      final recipeData = recipeSnapshot.data() as Map<String, dynamic>;
+      List<String> requiredIngredients = List<String>.from(recipeData['requiredIngredients'] ?? []);
       result['requiredIngredients'] = requiredIngredients;
 
       debugPrint('📋 Required ingredients: $requiredIngredients');
-      debugPrint('👤 User ingredient: $userIngredient');
+      debugPrint('👤 User ingredient NAME: $userIngredientName');
 
-      // Step 5: Controlla se l'ingrediente dell'utente è richiesto
-      if (!requiredIngredients.contains(userIngredient)) {
-        result['reason'] =
-            'Il tuo ingrediente ($userIngredient) non è richiesto da questa ricetta';
+      // Step 6: Controlla se l'ingrediente dell'utente è richiesto
+      if (!requiredIngredients.contains(userIngredientName)) {
+        result['reason'] = 'Il tuo ingrediente "$userIngredientName" non è richiesto da questa ricetta';
+        debugPrint('❌ User ingredient not required');
         return result;
       }
 
-      // Step 6: Controlla quali ingredienti sono già presenti
-      Set<String> presentIngredients = {};
-      for (var participant in participants) {
+      debugPrint('✅ User ingredient is required!');
+
+      // Step 7: Analizza gli ingredienti già presenti - CON DEBUG DETTAGLIATO
+      List<dynamic> participants = List<dynamic>.from(roomData['participants'] ?? []);
+      Set<String> presentIngredientNames = {};
+
+      debugPrint('👥 Found ${participants.length} participants');
+
+      for (int i = 0; i < participants.length; i++) {
+        final participant = participants[i];
         if (participant is Map<String, dynamic>) {
-          presentIngredients.add(participant['ingredientId'] as String);
+          try {
+            String participantIngredientId = participant['ingredientId'] as String;
+            debugPrint('🔍 Looking up ingredient name for participant $i with ID: $participantIngredientId');
+            String participantIngredientName = await getIngredientNameById(participantIngredientId);
+            presentIngredientNames.add(participantIngredientName);
+            debugPrint('✅ Participant $i ingredient: $participantIngredientName');
+          } catch (e) {
+            debugPrint('❌ Error getting ingredient name for participant $i: $e');
+            // Continua con il prossimo partecipante invece di fermarsi
+          }
         }
       }
 
-      result['presentIngredients'] = presentIngredients.toList();
+      result['presentIngredients'] = presentIngredientNames.toList();
       result['missingIngredients'] = requiredIngredients
-          .where((ingredient) => !presentIngredients.contains(ingredient))
+          .where((ingredient) => !presentIngredientNames.contains(ingredient))
           .toList();
 
-      debugPrint('✅ Present ingredients: ${presentIngredients.toList()}');
-      debugPrint('❌ Missing ingredients: ${result['missingIngredients']}');
+      debugPrint('✅ Present ingredient names: ${presentIngredientNames.toList()}');
+      debugPrint('❌ Missing ingredient names: ${result['missingIngredients']}');
 
-      // Step 7: Controlla se l'ingrediente è già presente
-      if (presentIngredients.contains(userIngredient)) {
-        result['reason'] =
-            'Il tuo ingrediente ($userIngredient) è già presente nella stanza';
+      // Step 8: Controlla se l'ingrediente è già presente
+      if (presentIngredientNames.contains(userIngredientName)) {
+        result['reason'] = 'Il tuo ingrediente "$userIngredientName" è già presente nella stanza';
+        debugPrint('❌ User ingredient already present');
         return result;
       }
 
-      // Step 8: TUTTO OK - L'utente può unirsi!
+      // Step 9: TUTTO OK!
       result['canJoin'] = true;
-      result['reason'] =
-          'Match perfetto! Il tuo ingrediente è necessario e mancante.';
+      result['reason'] = 'Match perfetto! Il tuo ingrediente "$userIngredientName" è necessario e mancante.';
+      result['userIngredient'] = userIngredientName;
 
-      debugPrint('🎉 Validation passed: User can join room');
+      debugPrint('🎉 VALIDATION SUCCESS - User can join!');
       return result;
+
     } catch (e) {
-      debugPrint('❌ Error validating ingredient match: $e');
-      return {
-        'canJoin': false,
-        'reason': 'Errore durante la validazione: $e',
-        'userIngredient': '',
-        'requiredIngredients': <String>[],
-        'presentIngredients': <String>[],
-        'missingIngredients': <String>[],
-        'details': {'error': e.toString()},
-      };
+      debugPrint('❌ ERRORE GENERALE in validateIngredientMatch: $e');
+      result['reason'] = 'Errore durante la validazione: $e';
+      return result;
     }
   }
 
-  /// Versione migliorata di joinRoom con validazione ingredienti
-  Future<void> joinRoomWithIngredientValidation(
+  Future<Map<String, dynamic>> joinRoomWithIngredientValidation(
       String roomId, String userId, String ingredientId) async {
     try {
       debugPrint('🚀 Starting validated join room process...');
@@ -319,76 +320,118 @@ class DatabaseService {
       final validation = await validateIngredientMatch(roomId, userId);
 
       if (!validation['canJoin']) {
-        throw Exception(validation['reason']);
+        return {
+          'success': false,
+          'error': validation['reason'],
+          'validation': validation,
+        };
       }
 
       // Step 2: Double-check che l'ingrediente fornito corrisponda a quello dell'utente
-      if (validation['userIngredient'] != ingredientId) {
-        throw Exception(
-            'L\'ingrediente fornito ($ingredientId) non corrisponde a quello assegnato (${validation['userIngredient']})');
+      String ingredientName;
+      try {
+        ingredientName = await getIngredientNameById(ingredientId);
+      } catch (e) {
+        return {
+          'success': false,
+          'error': 'Errore nel recupero del nome ingrediente: $e',
+          'validation': validation,
+        };
+      }
+
+      if (validation['userIngredient'] != ingredientName) {
+        return {
+          'success': false,
+          'error': 'L\'ingrediente fornito "$ingredientName" non corrisponde a quello assegnato "${validation['userIngredient']}"',
+          'validation': validation,
+        };
       }
 
       debugPrint('✅ Validation passed, proceeding with join...');
 
-      // Step 3: Esegui il join utilizzando una transazione per sicurezza
-      await _db.runTransaction((transaction) async {
-        // Rileggi i dati per essere sicuri che non siano cambiati
-        final roomRef = _db.collection('rooms').doc(roomId);
-        final userRef = _db.collection('users').doc(userId);
-
-        final roomSnapshot = await transaction.get(roomRef);
-        final userSnapshot = await transaction.get(userRef);
-
-        if (!roomSnapshot.exists || !userSnapshot.exists) {
-          throw Exception('Stanza o utente non trovati durante la transazione');
+      // Step 3: JOIN SEMPLICE SENZA TRANSAZIONI
+      try {
+        // Verifica finale prima del join
+        final roomSnapshot = await _db.collection('rooms').doc(roomId).get();
+        if (!roomSnapshot.exists) {
+          throw Exception('Stanza non trovata');
         }
 
         final roomData = roomSnapshot.data() as Map<String, dynamic>;
-        final userData = userSnapshot.data() as Map<String, dynamic>;
+        List<dynamic> participants = List<dynamic>.from(roomData['participants'] ?? []);
 
-        // Controlli last-minute
-        List<dynamic> participants = roomData['participants'] ?? [];
         if (participants.length >= 3) {
-          throw Exception(
-              'La stanza si è riempita mentre processavamo la richiesta');
+          throw Exception('La stanza è piena');
         }
 
-        // Controlla ancora che l'ingrediente non sia già presente
-        bool ingredientAlreadyPresent = participants.any((p) =>
-            p is Map<String, dynamic> && p['ingredientId'] == ingredientId);
-        if (ingredientAlreadyPresent) {
-          throw Exception(
-              'L\'ingrediente è stato aggiunto da qualcun altro mentre processavamo la richiesta');
+        // Verifica che l'utente non sia già presente
+        bool userAlreadyPresent = participants.any((p) =>
+        p is Map<String, dynamic> && p['userId'] == userId);
+        if (userAlreadyPresent) {
+          throw Exception('Sei già un partecipante di questa stanza');
         }
 
-        // Aggiorna la stanza
-        transaction.update(roomRef, {
-          'participants': FieldValue.arrayUnion([
-            {
-              'userId': userId,
-              'ingredientId': ingredientId,
-              'hasConfirmed': false,
-              'joinedAt': FieldValue.serverTimestamp(),
-            }
-          ]),
+        debugPrint('🔄 Adding participant using arrayUnion...');
+
+        // NUOVO APPROCCIO: Usa Map semplice senza FieldValue nested
+        Map<String, dynamic> newParticipant = {
+          'userId': userId,
+          'ingredientId': ingredientId,
+          'hasConfirmed': true,
+          'joinedAt': DateTime.now().millisecondsSinceEpoch, // Timestamp numerico semplice
+        };
+
+        // Update della room con arrayUnion
+        await _db.collection('rooms').doc(roomId).update({
+          'participants': FieldValue.arrayUnion([newParticipant]),
+          'lastUpdated': FieldValue.serverTimestamp(),
         });
 
-        // Aggiorna l'utente
-        List<dynamic> userRooms = List.from(userData['rooms'] ?? []);
-        if (!userRooms.contains(roomId)) {
-          userRooms.add(roomId);
+        debugPrint('✅ Room updated successfully');
+
+        // Aggiorna l'utente separatamente
+        final userSnapshot = await _db.collection('users').doc(userId).get();
+        if (userSnapshot.exists) {
+          final userData = userSnapshot.data() as Map<String, dynamic>;
+          List<dynamic> userRooms = List<dynamic>.from(userData['rooms'] ?? []);
+          if (!userRooms.contains(roomId)) {
+            userRooms.add(roomId);
+          }
+
+          await _db.collection('users').doc(userId).update({
+            'rooms': userRooms,
+            'lastRoomJoined': roomId,
+            'lastRoomJoinedAt': FieldValue.serverTimestamp(),
+          });
+
+          debugPrint('✅ User updated successfully');
         }
 
-        transaction.update(userRef, {
-          'rooms': userRooms,
-        });
-      });
+        debugPrint('🎉 Join completed successfully!');
 
-      debugPrint(
-          '🎉 User successfully joined room with ingredient validation!');
+        return {
+          'success': true,
+          'message': 'Join completato con successo e partecipazione confermata automaticamente',
+          'validation': validation,
+          'roomId': roomId,
+        };
+
+      } catch (joinError) {
+        debugPrint('❌ Error during join: $joinError');
+        return {
+          'success': false,
+          'error': 'Errore durante il join: $joinError',
+          'validation': validation,
+        };
+      }
+
     } catch (e) {
       debugPrint('❌ Error in joinRoomWithIngredientValidation: $e');
-      rethrow;
+      return {
+        'success': false,
+        'error': 'Errore durante la validazione: $e',
+        'validation': null,
+      };
     }
   }
 
@@ -396,16 +439,14 @@ class DatabaseService {
 // CORREZIONE PUNTEGGI in database_service.dart
 // ===================================================================
 
-// SOSTITUISCI la funzione completeRoomAndFreeSlots esistente:
+  // SOSTITUISCI il metodo completeRoomAndFreeSlots con questa versione:
 
-  Future<void> completeRoomAndFreeSlots(String roomId) async {
+  Future<void> completeRoomAndFreeSlots(String roomId, String currentUserId) async {
     try {
-      DocumentSnapshot roomDoc =
-          await _db.collection('rooms').doc(roomId).get();
+      DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
       if (!roomDoc.exists) return;
 
-      RoomModel room =
-          RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+      RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
 
       // Segna la stanza come completata
       await _db.collection('rooms').doc(roomId).update({
@@ -413,10 +454,10 @@ class DatabaseService {
         'completedAt': FieldValue.serverTimestamp(),
       });
 
-      // CORREZIONE: Assegna punti all'host (chi ha la pozione) - DA 10 A 12
+      // Assegna punti all'host (chi ha la pozione) - 12 punti
       await updatePoints(room.hostId, 12);
 
-      // CORREZIONE: Assegna punti ai partecipanti (chi ha gli ingredienti) - DA 5 A 3
+      // Assegna punti ai partecipanti (chi ha gli ingredienti) - 3 punti
       for (ParticipantModel participant in room.participants) {
         await updatePoints(participant.userId, 3);
       }
@@ -431,18 +472,70 @@ class DatabaseService {
         room.participants.map((p) => p.userId).toList(),
       );
 
-      // Libera gli slot di tutti i partecipanti (incluso l'host)
-      List<String> allUserIds = [room.hostId];
-      allUserIds.addAll(room.participants.map((p) => p.userId));
-      await freeUserSlots(allUserIds);
+      // MODIFICA: Libera solo lo slot dell'utente corrente
+      // Gli altri utenti libereranno i loro slot quando vedranno che la stanza è completata
+      await _freeUserSlot(currentUserId);
 
-      // Assegna nuovi elementi casuali solo ai partecipanti (non all'host che ha il coaster consumato)
-      for (String userId in room.participants.map((p) => p.userId)) {
-        await assignRandomGameElement(userId);
-      }
+      // MODIFICA: Assegna nuovo elemento casuale solo all'utente corrente
+      // Gli altri utenti riceveranno il nuovo elemento quando aggiorneranno la loro UI
+      await assignRandomGameElement(currentUserId);
+
+      debugPrint('✅ Room completed successfully by user: $currentUserId');
     } catch (e) {
       debugPrint('Error completing room and freeing slots: $e');
       rethrow;
+    }
+  }
+
+// NUOVO: Metodo per liberare lo slot di un singolo utente
+  Future<void> _freeUserSlot(String userId) async {
+    try {
+      await _db.collection('users').doc(userId).update({
+        'currentRecipeId': null,
+        'currentIngredientId': null,
+      });
+      debugPrint('✅ Freed slot for user: $userId');
+    } catch (e) {
+      debugPrint('❌ Error freeing user slot for $userId: $e');
+      // Non rilancia l'errore per non bloccare il completamento della stanza
+    }
+  }
+
+// NUOVO: Metodo per liberare il proprio slot quando si vede una stanza completata
+  Future<void> freeMySlotIfRoomCompleted(String userId) async {
+    try {
+      // Ottieni i dati dell'utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) return;
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final userRooms = List<String>.from(userData['rooms'] ?? []);
+
+      // Controlla se l'utente è in stanze completate
+      for (String roomId in userRooms) {
+        final roomDoc = await _db.collection('rooms').doc(roomId).get();
+        if (roomDoc.exists) {
+          final roomData = roomDoc.data() as Map<String, dynamic>;
+          final isCompleted = roomData['isCompleted'] ?? false;
+
+          if (isCompleted) {
+            // La stanza è completata, libera il tuo slot e assegna nuovo elemento
+            await _freeUserSlot(userId);
+            await assignRandomGameElement(userId);
+
+            // Rimuovi la stanza completata dalla lista dell'utente
+            userRooms.remove(roomId);
+            await _db.collection('users').doc(userId).update({
+              'rooms': userRooms,
+            });
+
+            debugPrint('✅ User $userId freed slot from completed room $roomId');
+            break; // Esci dopo il primo match per evitare conflitti
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking/freeing slots for user $userId: $e');
     }
   }
 
@@ -911,11 +1004,11 @@ class DatabaseService {
 // =============================================================================
 
   /// Sovrascrive il metodo joinRoom esistente con la versione validata
-  @override
-  Future<void> joinRoom(
-      String roomId, String userId, String ingredientId) async {
-    await joinRoomWithIngredientValidation(roomId, userId, ingredientId);
-  }
+  //@override
+  //Future<void> joinRoom(
+  //    String roomId, String userId, String ingredientId) async {
+    //  await joinRoomWithIngredientValidation(roomId, userId, ingredientId);
+  //}
 
   Future<bool> isItemClaimed(String itemId) async {
     // Controlla se è una ricetta
@@ -1624,11 +1717,23 @@ class DatabaseService {
   /// Ottiene informazioni dettagliate su un ingrediente tramite ID
   Future<String> getIngredientNameById(String ingredientId) async {
     try {
-      final ingredient = await getIngredient(ingredientId);
-      return ingredient?.name ?? 'Ingrediente sconosciuto';
+      debugPrint('🔍 getIngredientNameById called with ID: $ingredientId');
+
+      final doc = await _db.collection('ingredients').doc(ingredientId).get();
+
+      if (!doc.exists) {
+        debugPrint('❌ Document not found for ingredient ID: $ingredientId');
+        throw Exception('Ingrediente non trovato per ID: $ingredientId');
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      final name = data['name'] as String;
+
+      debugPrint('✅ Found ingredient name: $name for ID: $ingredientId');
+      return name;
     } catch (e) {
-      debugPrint('Error getting ingredient name: $e');
-      return 'Ingrediente sconosciuto';
+      debugPrint('❌ Error in getIngredientNameById for ID $ingredientId: $e');
+      rethrow;
     }
   }
 

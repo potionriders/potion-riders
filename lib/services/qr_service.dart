@@ -179,16 +179,6 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
                       ),
                     ),
 
-                  ElevatedButton.icon(
-                    onPressed: _testCallback,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Test'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-
                   IconButton(
                     onPressed: _showInfo,
                     icon: const Icon(Icons.info_outline),
@@ -524,24 +514,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
     });
   }
 
-  void _testCallback() {
-    print('TEST: Simulando QR rilevato');
-    setState(() {
-      result = "Test callback...";
-    });
 
-    try {
-      widget.onDetect('{"type": "coaster", "id": "test123"}');
-      setState(() {
-        result = "Test completato con successo";
-      });
-    } catch (e) {
-      setState(() {
-        _lastError = 'Test fallito: $e';
-        result = "Test fallito";
-      });
-    }
-  }
 
   void _clearHistory() {
     setState(() {

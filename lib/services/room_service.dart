@@ -12,18 +12,51 @@ class RoomService with ChangeNotifier {
     return roomId;
   }
 
-  // Unisciti a una stanza
-  Future<bool> joinRoom(
+  // Unisciti a una stanza con gestione migliorata
+  Future<Map<String, dynamic>> joinRoom(
       String roomId, String userId, String ingredientId) async {
     try {
-      await _db.joinRoom(roomId, userId, ingredientId);
-      notifyListeners();
-      return true;
+      debugPrint('🎯 RoomService: Attempting to join room $roomId');
+
+      final result = await _db.joinRoomWithIngredientValidation(
+          roomId, userId, ingredientId);
+
+      if (result['success'] == true) {
+        debugPrint('✅ RoomService: Join successful, notifying listeners');
+        notifyListeners();
+        return result;
+      } else {
+        debugPrint('❌ RoomService: Join failed - ${result['error']}');
+        return result;
+      }
     } catch (e) {
-      print('Error joining room: $e');
-      return false;
+      debugPrint('❌ RoomService: Exception during join - $e');
+      return {
+        'success': false,
+        'error': 'Errore del servizio durante il join: $e',
+        'validation': null,
+      };
     }
   }
+
+// Metodo helper per verificare la compatibilità prima del join
+  Future<Map<String, dynamic>> checkRoomCompatibility(
+      String roomId, String userId) async {
+    try {
+      return await _db.validateIngredientMatch(roomId, userId);
+    } catch (e) {
+      debugPrint('Error checking room compatibility: $e');
+      return {
+        'canJoin': false,
+        'reason': 'Errore durante la verifica di compatibilità: $e',
+        'userIngredient': '',
+        'requiredIngredients': <String>[],
+        'presentIngredients': <String>[],
+        'missingIngredients': <String>[],
+      };
+    }
+  }
+
 
   // Conferma partecipazione
   Future<bool> confirmParticipation(String roomId, String userId) async {
