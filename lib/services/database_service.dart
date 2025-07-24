@@ -435,55 +435,366 @@ class DatabaseService {
     }
   }
 
-  // ===================================================================
-// CORREZIONE PUNTEGGI in database_service.dart
-// ===================================================================
+// AGGIUNGI questi metodi di debug per capire cosa sta succedendo
 
-  // SOSTITUISCI il metodo completeRoomAndFreeSlots con questa versione:
+  /// Debug: Verifica lo stato completo di un utente
+  Future<Map<String, dynamic>> debugUserState(String userId) async {
+    try {
+      debugPrint('🔍 DEBUGGING USER STATE for: $userId');
 
+      // 1. Controlla documento utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      Map<String, dynamic> userState = {
+        'userExists': userDoc.exists,
+        'userData': userDoc.exists ? userDoc.data() : null,
+      };
+
+      if (userDoc.exists) {
+        final userData = userDoc.data() as Map<String, dynamic>;
+        debugPrint('👤 User data:');
+        debugPrint('   currentRecipeId: ${userData['currentRecipeId']}');
+        debugPrint('   currentIngredientId: ${userData['currentIngredientId']}');
+      }
+
+      // 2. Controlla coasters associati
+      final coastersSnapshot = await _db
+          .collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .get();
+
+      debugPrint('🃏 Coasters with claimedByUserId = $userId: ${coastersSnapshot.docs.length}');
+      for (var doc in coastersSnapshot.docs) {
+        final data = doc.data();
+        debugPrint('   Coaster ${doc.id}:');
+        debugPrint('     claimedByUserId: ${data['claimedByUserId']}');
+        debugPrint('     isConsumed: ${data['isConsumed']}');
+        debugPrint('     isActive: ${data['isActive']}');
+        debugPrint('     usedAs: ${data['usedAs']}');
+      }
+
+      // 3. Controlla coasters con previousOwner
+      final previousCoastersSnapshot = await _db
+          .collection('coasters')
+          .where('previousOwner', isEqualTo: userId)
+          .get();
+
+      debugPrint('🃏 Coasters with previousOwner = $userId: ${previousCoastersSnapshot.docs.length}');
+      for (var doc in previousCoastersSnapshot.docs) {
+        final data = doc.data();
+        debugPrint('   Previous Coaster ${doc.id}:');
+        debugPrint('     previousOwner: ${data['previousOwner']}');
+        debugPrint('     claimedByUserId: ${data['claimedByUserId']}');
+        debugPrint('     isConsumed: ${data['isConsumed']}');
+      }
+
+      userState['activeCoasters'] = coastersSnapshot.docs.length;
+      userState['previousCoasters'] = previousCoastersSnapshot.docs.length;
+
+      return userState;
+    } catch (e) {
+      debugPrint('❌ Error debugging user state: $e');
+      return {'error': e.toString()};
+    }
+  }
+
+  /// VERSIONE CORRETTA E DEFINITIVA per disassociare il coaster dell'host
+  Future<void> completelyDisassociateHostCoaster(String userId) async {
+    try {
+      debugPrint('🔄 Starting COMPLETE disassociation for user: $userId');
+
+      // 1. PRIMA pulisci i dati utente per essere sicuri
+      await _db.collection('users').doc(userId).update({
+        'currentRecipeId': null,
+        'currentIngredientId': null,
+      });
+      debugPrint('✅ User document cleaned');
+
+      // 2. TROVA TUTTI i coasters dell'utente (attivi e non consumati)
+      final coastersSnapshot = await _db
+          .collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .get();
+
+      debugPrint('🃏 Found ${coastersSnapshot.docs.length} coasters for user');
+
+      if (coastersSnapshot.docs.isEmpty) {
+        debugPrint('⚠️ No coasters found for user $userId');
+        return;
+      }
+
+      // 3. PROCESSA OGNI COASTER trovato
+      for (var coasterDoc in coastersSnapshot.docs) {
+        final coasterId = coasterDoc.id;
+        final coasterData = coasterDoc.data();
+
+        debugPrint('🔄 Processing coaster $coasterId');
+        debugPrint('   Current claimedByUserId: ${coasterData['claimedByUserId']}');
+        debugPrint('   Current isConsumed: ${coasterData['isConsumed']}');
+
+        // DISASSOCIAZIONE COMPLETA E DEFINITIVA
+        await _db.collection('coasters').doc(coasterId).update({
+          // RIMUOVI COMPLETAMENTE L'ASSOCIAZIONE
+          'claimedByUserId': null,
+          'usedAs': null,
+
+          // MARCA COME CONSUMATO E STORICO
+          'isConsumed': true,
+          'consumedAt': FieldValue.serverTimestamp(),
+          'previousOwner': userId,
+          'completedAsPotion': true,
+          'completionType': 'host_potion_completed',
+
+          // BACKUP DEI DATI ORIGINALI
+          'originalRecipeId': coasterData['recipeId'],
+          'originalIngredientId': coasterData['ingredientId'],
+        });
+
+        debugPrint('✅ Coaster $coasterId completely disassociated and marked as consumed');
+      }
+
+      debugPrint('🎉 COMPLETE disassociation finished for user $userId');
+
+      // 4. DEBUG FINALE - verifica che tutto sia pulito
+      await debugUserState(userId);
+
+    } catch (e) {
+      debugPrint('❌ CRITICAL ERROR in completelyDisassociateHostCoaster: $e');
+      rethrow;
+    }
+  }
+
+  /// METODO PULITO per completare la stanza
   Future<void> completeRoomAndFreeSlots(String roomId, String currentUserId) async {
     try {
+      debugPrint('🎉 STARTING room completion - Room: $roomId, User: $currentUserId');
+
+      // 1. Ottieni dati stanza
       DocumentSnapshot roomDoc = await _db.collection('rooms').doc(roomId).get();
-      if (!roomDoc.exists) return;
+      if (!roomDoc.exists) {
+        throw Exception('Stanza non trovata');
+      }
 
       RoomModel room = RoomModel.fromMap(roomDoc.data() as Map<String, dynamic>, roomDoc.id);
+      debugPrint('   Host: ${room.hostId}');
 
-      // Segna la stanza come completata
+      // 2. Segna stanza come completata
       await _db.collection('rooms').doc(roomId).update({
         'isCompleted': true,
         'completedAt': FieldValue.serverTimestamp(),
+        'completedBy': currentUserId,
       });
+      debugPrint('✅ Room marked as completed');
 
-      // Assegna punti all'host (chi ha la pozione) - 12 punti
-      await updatePoints(room.hostId, 12);
+      // 3. Assegna punti (con gestione errori)
+      try {
+        await updatePoints(room.hostId, 12);
+        debugPrint('✅ Points assigned to host');
 
-      // Assegna punti ai partecipanti (chi ha gli ingredienti) - 3 punti
-      for (ParticipantModel participant in room.participants) {
-        await updatePoints(participant.userId, 3);
+        for (ParticipantModel participant in room.participants) {
+          await updatePoints(participant.userId, 3);
+        }
+        debugPrint('✅ Points assigned to participants');
+      } catch (e) {
+        debugPrint('⚠️ Error assigning points: $e');
       }
 
-      // NUOVO: Consuma il sottobicchiere dell'host (chi ha la pozione)
-      await consumeUserCoaster(room.hostId);
+      // 4. DISASSOCIAZIONE COMPLETA DEL COASTER DELL'HOST
+      debugPrint('🔄 Starting host coaster disassociation...');
+      await completelyDisassociateHostCoaster(room.hostId);
+      debugPrint('✅ Host coaster completely disassociated');
 
-      // Registra il completamento
-      await createCompletionRecord(
-        room.hostId,
-        room.recipeId,
-        room.participants.map((p) => p.userId).toList(),
-      );
+      // 5. Registra completamento per storico
+      try {
+        await createCompletionRecord(
+          room.hostId,
+          room.recipeId,
+          room.participants.map((p) => p.userId).toList(),
+        );
+        debugPrint('✅ Completion recorded');
+      } catch (e) {
+        debugPrint('⚠️ Error recording completion: $e');
+      }
 
-      // MODIFICA: Libera solo lo slot dell'utente corrente
-      // Gli altri utenti libereranno i loro slot quando vedranno che la stanza è completata
-      await _freeUserSlot(currentUserId);
+      debugPrint('🎉 Room completion process FINISHED SUCCESSFULLY');
 
-      // MODIFICA: Assegna nuovo elemento casuale solo all'utente corrente
-      // Gli altri utenti riceveranno il nuovo elemento quando aggiorneranno la loro UI
-      await assignRandomGameElement(currentUserId);
-
-      debugPrint('✅ Room completed successfully by user: $currentUserId');
     } catch (e) {
-      debugPrint('Error completing room and freeing slots: $e');
+      debugPrint('❌ CRITICAL ERROR in room completion: $e');
       rethrow;
+    }
+  }
+
+  /// UTILITY: Verifica se un utente dovrebbe vedere coasters nella home
+  Future<bool> shouldUserSeeCoaster(String userId) async {
+    try {
+      // 1. Controlla documento utente
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) return false;
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final hasRecipe = userData['currentRecipeId'] != null;
+      final hasIngredient = userData['currentIngredientId'] != null;
+
+      // 2. Controlla coasters attivi
+      final activeCoastersSnapshot = await _db
+          .collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .where('isConsumed', isEqualTo: false)
+          .get();
+
+      final hasActiveCoaster = activeCoastersSnapshot.docs.isNotEmpty;
+
+      debugPrint('🔍 Should user $userId see coaster?');
+      debugPrint('   hasRecipe: $hasRecipe');
+      debugPrint('   hasIngredient: $hasIngredient');
+      debugPrint('   hasActiveCoaster: $hasActiveCoaster');
+
+      // L'utente dovrebbe vedere un coaster solo se ha elementi E un coaster attivo
+      return (hasRecipe || hasIngredient) && hasActiveCoaster;
+    } catch (e) {
+      debugPrint('❌ Error checking if user should see coaster: $e');
+      return false;
+    }
+  }
+
+  /// NUOVO: Verifica se un utente può ottenere un nuovo coaster (controllo completo)
+  Future<bool> canUserGetNewCoaster(String userId) async {
+    try {
+      // 1. Verifica che l'utente non abbia già un coaster attivo
+      QuerySnapshot activeCoasterQuery = await _db
+          .collection('coasters')
+          .where('claimedByUserId', isEqualTo: userId)
+          .where('isConsumed', isEqualTo: false)
+          .limit(1)
+          .get();
+
+      if (activeCoasterQuery.docs.isNotEmpty) {
+        debugPrint('❌ User $userId already has an active coaster');
+        return false;
+      }
+
+      // 2. Verifica che abbia un coaster consumato (precedente completamento)
+      QuerySnapshot consumedCoasterQuery = await _db
+          .collection('coasters')
+          .where('previousOwner', isEqualTo: userId) // NUOVO: usa previousOwner
+          .where('isConsumed', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (consumedCoasterQuery.docs.isEmpty) {
+        debugPrint('❌ User $userId has no consumed coaster to exchange');
+        return false;
+      }
+
+      debugPrint('✅ User $userId can get a new coaster');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error checking if user can get new coaster: $e');
+      return false;
+    }
+  }
+
+  /// NUOVO: Assegna un nuovo coaster a un utente che ha completato una pozione
+  Future<bool> assignNewCoasterToUser(String userId) async {
+    try {
+      debugPrint('🔄 Assigning new coaster to user: $userId');
+
+      // 1. Verifica che l'utente possa ottenere un nuovo coaster
+      if (!await canUserGetNewCoaster(userId)) {
+        return false;
+      }
+
+      // 2. Trova un coaster disponibile
+      QuerySnapshot availableCoasterQuery = await _db
+          .collection('coasters')
+          .where('isActive', isEqualTo: true)
+          .where('claimedByUserId', isEqualTo: null)
+          .where('isConsumed', isEqualTo: false)
+          .limit(1)
+          .get();
+
+      if (availableCoasterQuery.docs.isEmpty) {
+        debugPrint('❌ No available coasters for assignment');
+        return false;
+      }
+
+      String newCoasterId = availableCoasterQuery.docs.first.id;
+      Map<String, dynamic> newCoasterData = availableCoasterQuery.docs.first.data() as Map<String, dynamic>;
+
+      // 3. Assegna il nuovo coaster all'utente
+      await _db.collection('coasters').doc(newCoasterId).update({
+        'claimedByUserId': userId,
+        'claimedAt': FieldValue.serverTimestamp(),
+        'claimReason': 'new_coaster_after_completion',
+      });
+
+      // 4. Assegna elemento casuale all'utente basato sul nuovo coaster
+      bool useAsRecipe = Random().nextBool(); // 50/50 chance
+
+      if (useAsRecipe) {
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': newCoasterData['recipeId'],
+          'currentIngredientId': null,
+        });
+      } else {
+        await _db.collection('users').doc(userId).update({
+          'currentRecipeId': null,
+          'currentIngredientId': newCoasterData['ingredientId'],
+        });
+      }
+
+      // 5. Aggiorna il coaster con l'uso scelto
+      await _db.collection('coasters').doc(newCoasterId).update({
+        'usedAs': useAsRecipe ? 'recipe' : 'ingredient',
+      });
+
+      debugPrint('✅ New coaster $newCoasterId assigned to user $userId as ${useAsRecipe ? 'recipe' : 'ingredient'}');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error assigning new coaster to user: $e');
+      return false;
+    }
+  }
+
+  /// UTILITY: Ottieni statistiche coaster per admin (con nuovo campo previousOwner)
+  Future<Map<String, dynamic>> getCoasterStatistics() async {
+    try {
+      final allCoasters = await _db.collection('coasters').get();
+
+      int totalCoasters = allCoasters.docs.length;
+      int activeCoasters = 0;
+      int claimedCoasters = 0;
+      int consumedCoasters = 0;
+      int availableCoasters = 0;
+      int orphanedCoasters = 0; // Coasters con previousOwner ma utente non esiste
+
+      for (var doc in allCoasters.docs) {
+        final data = doc.data();
+
+        if (data['isActive'] == true) activeCoasters++;
+        if (data['claimedByUserId'] != null) claimedCoasters++;
+        if (data['isConsumed'] == true) consumedCoasters++;
+        if (data['isActive'] == true &&
+            data['claimedByUserId'] == null &&
+            data['isConsumed'] != true) availableCoasters++;
+
+        // Controlla orphaned (con previousOwner ma utente non esiste)
+        if (data['previousOwner'] != null) {
+          final userDoc = await _db.collection('users').doc(data['previousOwner']).get();
+          if (!userDoc.exists) orphanedCoasters++;
+        }
+      }
+
+      return {
+        'totalCoasters': totalCoasters,
+        'activeCoasters': activeCoasters,
+        'claimedCoasters': claimedCoasters,
+        'consumedCoasters': consumedCoasters,
+        'availableCoasters': availableCoasters,
+        'orphanedCoasters': orphanedCoasters,
+      };
+    } catch (e) {
+      debugPrint('❌ Error getting coaster statistics: $e');
+      return {};
     }
   }
 
