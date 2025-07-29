@@ -5,7 +5,7 @@ class UserModel {
   final String email;
   final String nickname;
   final String photoUrl;
-  final String house; // NUOVO CAMPO CASATA
+  final String house;
   final String role;
   final int points;
   final String gameUuid;
@@ -19,7 +19,7 @@ class UserModel {
     required this.email,
     required this.nickname,
     required this.photoUrl,
-    required this.house, // NUOVO CAMPO OBBLIGATORIO
+    required this.house,
     required this.role,
     required this.points,
     required this.gameUuid,
@@ -35,7 +35,7 @@ class UserModel {
       email: map['email'] ?? '',
       nickname: map['nickname'] ?? '',
       photoUrl: map['photoUrl'] ?? '',
-      house: map['house'] ?? 'Senza Casata', // NUOVO CAMPO con default per utenti esistenti
+      house: map['house'] ?? 'Senza Casata',
       role: map['role'] ?? 'player',
       points: map['points'] ?? 0,
       gameUuid: map['gameUuid'] ?? '',
@@ -62,7 +62,6 @@ class UserModel {
     };
   }
 
-  // Metodo helper per ottenere il colore della casata
   Color getHouseColor() {
     switch (house) {
       case 'Rospo Verde':
@@ -76,7 +75,6 @@ class UserModel {
     }
   }
 
-  // Metodo helper per ottenere l'icona della casata
   IconData getHouseIcon() {
     switch (house) {
       case 'Rospo Verde':

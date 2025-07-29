@@ -36,8 +36,6 @@ class _QRCodeGeneratorScreenState extends State<QRCodeGeneratorScreen> {
       ),
       body: Column(
         children: [
-          // Header con info
-          _buildInfoCard(),
 
           // Filtri
           _buildFiltersCard(),

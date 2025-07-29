@@ -125,7 +125,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
             children: [
               const Icon(Icons.qr_code, color: Colors.white),
               const SizedBox(width: 8),
-              Expanded(child: Text('QR Scansionato: ${data.length > 50 ? data.substring(0, 50) + "..." : data}')),
+              Expanded(child: Text('QR Scansionato: ${data.length > 50 ? "${data.substring(0, 50)}..." : data}')),
             ],
           ),
           duration: const Duration(seconds: 3),
@@ -381,7 +381,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 32),
+            const Icon(Icons.check_circle, color: Colors.green, size: 32),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -412,7 +412,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(Icons.error, color: Colors.red, size: 32),
+            const Icon(Icons.error, color: Colors.red, size: 32),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -451,7 +451,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
             if (_parsedData != null) ...[
               Row(
                 children: [
-                  Icon(Icons.category, size: 20),
+                  const Icon(Icons.category, size: 20),
                   const SizedBox(width: 8),
                   Text(
                     'Tipo: ${_getItemTypeLabel(_parsedData!['type'])}',
@@ -462,7 +462,7 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(Icons.fingerprint, size: 20),
+                  const Icon(Icons.fingerprint, size: 20),
                   const SizedBox(width: 8),
                   Text('ID: ${_parsedData!['id'] ?? 'Sconosciuto'}'),
                 ],
@@ -682,10 +682,8 @@ class _ScanItemScreenState extends State<ScanItemScreen> {
       setState(() {
         if (result == true) {
           _success = 'Sottobicchiere $coasterId reclamato con successo!';
-          if (result != null) {
-            _success = _success! + '\nRicetta sbloccata}';
-          }
-        } else {
+          _success = '${_success!}\nRicetta sbloccata}';
+                } else {
           _error = 'Errore nel reclamare il sottobicchiere';
         }
         _isProcessing = false;

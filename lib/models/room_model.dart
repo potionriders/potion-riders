@@ -118,18 +118,33 @@ class ParticipantModel {
   final String ingredientId;
   final bool hasConfirmed;
 
+  // NUOVI CAMPI per i nomi (opzionali per compatibilità)
+  final String? userName;
+  final String? ingredientName;
+  final int? joinedAt;
+
   ParticipantModel({
     required this.userId,
     required this.ingredientId,
     this.hasConfirmed = false,
+    this.userName,
+    this.ingredientName,
+    this.joinedAt,
   });
 
   Map<String, dynamic> toMap() {
-    return {
+    Map<String, dynamic> result = {
       'userId': userId,
       'ingredientId': ingredientId,
       'hasConfirmed': hasConfirmed,
     };
+
+    // Aggiungi campi opzionali solo se non null
+    if (userName != null) result['userName'] = userName!;
+    if (ingredientName != null) result['ingredientName'] = ingredientName!;
+    if (joinedAt != null) result['joinedAt'] = joinedAt!;
+
+    return result;
   }
 
   factory ParticipantModel.fromMap(Map<String, dynamic> map) {
@@ -137,20 +152,96 @@ class ParticipantModel {
       userId: map['userId'] ?? '',
       ingredientId: map['ingredientId'] ?? '',
       hasConfirmed: map['hasConfirmed'] ?? false,
+
+      // NUOVI CAMPI - possono essere null per dati vecchi
+      userName: map['userName'],
+      ingredientName: map['ingredientName'],
+      joinedAt: map['joinedAt'],
     );
   }
 
-  /// Crea una copia del partecipante con stato di conferma aggiornato
-  ParticipantModel copyWith({bool? hasConfirmed}) {
+  /// Crea una copia del partecipante con campi aggiornati
+  ParticipantModel copyWith({
+    bool? hasConfirmed,
+    String? userName,
+    String? ingredientName,
+    int? joinedAt,
+  }) {
     return ParticipantModel(
       userId: userId,
       ingredientId: ingredientId,
       hasConfirmed: hasConfirmed ?? this.hasConfirmed,
+      userName: userName ?? this.userName,
+      ingredientName: ingredientName ?? this.ingredientName,
+      joinedAt: joinedAt ?? this.joinedAt,
     );
   }
 
   /// Verifica se il partecipante è valido (ha userId e ingredientId)
   bool isValid() {
     return userId.isNotEmpty && ingredientId.isNotEmpty;
+  }
+
+  /// Ottieni il nome visualizzato dell'utente (con fallback)
+  String getDisplayName() {
+    if (userName != null && userName!.isNotEmpty) {
+      return userName!;
+    }
+    return 'Utente ${userId.substring(0, 8)}...'; // Mostra primi 8 caratteri dell'ID
+  }
+
+  /// Ottieni il nome visualizzato dell'ingrediente (con fallback)
+  String getIngredientDisplayName() {
+    if (ingredientName != null && ingredientName!.isNotEmpty) {
+      return ingredientName!;
+    }
+    return 'Ingrediente ${ingredientId.substring(0, 8)}...'; // Mostra primi 8 caratteri dell'ID
+  }
+
+  /// Ottieni data/ora di join formattata
+  String getJoinedAtFormatted() {
+    if (joinedAt != null) {
+      final dateTime = DateTime.fromMillisecondsSinceEpoch(joinedAt!);
+      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    }
+    return 'N/A';
+  }
+
+  /// Verifica se ha tutti i dati completi (inclusi nomi)
+  bool hasCompleteData() {
+    return isValid() &&
+        userName != null &&
+        userName!.isNotEmpty &&
+        ingredientName != null &&
+        ingredientName!.isNotEmpty;
+  }
+
+  @override
+  String toString() {
+    return 'ParticipantModel(userId: $userId, ingredientId: $ingredientId, '
+        'hasConfirmed: $hasConfirmed, userName: $userName, '
+        'ingredientName: $ingredientName, joinedAt: $joinedAt)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ParticipantModel &&
+        other.userId == userId &&
+        other.ingredientId == ingredientId &&
+        other.hasConfirmed == hasConfirmed &&
+        other.userName == userName &&
+        other.ingredientName == ingredientName &&
+        other.joinedAt == joinedAt;
+  }
+
+  @override
+  int get hashCode {
+    return userId.hashCode ^
+    ingredientId.hashCode ^
+    hasConfirmed.hashCode ^
+    (userName?.hashCode ?? 0) ^
+    (ingredientName?.hashCode ?? 0) ^
+    (joinedAt?.hashCode ?? 0);
   }
 }

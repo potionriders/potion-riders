@@ -327,10 +327,24 @@ class AuthService with ChangeNotifier {
   }
 
   // Logout
+  // Logout corretto che gestisce Web e Mobile
   Future<void> logout() async {
     try {
-      await _googleSignIn.signOut();
-      await _auth.signOut();
+      // Su Web, GoogleSignIn potrebbe non essere disponibile
+      // o potrebbe dare errori, quindi gestiamo separatamente
+      if (kIsWeb) {
+        // Su Web, basta fare logout da Firebase Auth
+        await _auth.signOut();
+      } else {
+        // Su Mobile, facciamo logout da entrambi
+        try {
+          await _googleSignIn.signOut();
+        } catch (e) {
+          // Se Google Sign-In fallisce, continuiamo comunque
+          debugPrint('Warning: Google Sign-In logout failed: $e');
+        }
+        await _auth.signOut();
+      }
 
       // Reset onboarding data
       _onboardingStage = OnboardingStage.none;

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:potion_riders/models/user_model.dart';
@@ -349,7 +348,6 @@ class DatabaseService {
 
       debugPrint('✅ Validation passed, proceeding with join...');
 
-      // Step 3: JOIN SEMPLICE SENZA TRANSAZIONI
       try {
         // Verifica finale prima del join
         final roomSnapshot = await _db.collection('rooms').doc(roomId).get();
@@ -373,12 +371,30 @@ class DatabaseService {
 
         debugPrint('🔄 Adding participant using arrayUnion...');
 
-        // NUOVO APPROCCIO: Usa Map semplice senza FieldValue nested
+        String userName;
+        try {
+          final userDoc = await _db.collection('users').doc(userId).get();
+          if (!userDoc.exists) {
+            throw Exception('Utente non trovato');
+          }
+          final userData = userDoc.data() as Map<String, dynamic>;
+          userName = userData['nickname'] ?? userData['email'] ?? 'Utente Sconosciuto';
+        } catch (e) {
+          userName = 'Utente Sconosciuto';
+          debugPrint('⚠️ Could not get user name: $e');
+        }
+
         Map<String, dynamic> newParticipant = {
+          // ID (necessari per logica)
           'userId': userId,
           'ingredientId': ingredientId,
+
+          'userName': userName,          // ← NUOVO
+          'ingredientName': ingredientName,  // ← NUOVO
+
+          // Metadati
           'hasConfirmed': true,
-          'joinedAt': DateTime.now().millisecondsSinceEpoch, // Timestamp numerico semplice
+          'joinedAt': DateTime.now().millisecondsSinceEpoch,
         };
 
         // Update della room con arrayUnion
@@ -403,17 +419,17 @@ class DatabaseService {
             'lastRoomJoined': roomId,
             'lastRoomJoinedAt': FieldValue.serverTimestamp(),
           });
-
-          debugPrint('✅ User updated successfully');
         }
-
-        debugPrint('🎉 Join completed successfully!');
 
         return {
           'success': true,
           'message': 'Join completato con successo e partecipazione confermata automaticamente',
           'validation': validation,
           'roomId': roomId,
+          'participantInfo': {
+            'userName': userName,
+            'ingredientName': ingredientName,
+          },
         };
 
       } catch (joinError) {
@@ -435,9 +451,6 @@ class DatabaseService {
     }
   }
 
-// AGGIUNGI questi metodi di debug per capire cosa sta succedendo
-
-  /// Debug: Verifica lo stato completo di un utente
   Future<Map<String, dynamic>> debugUserState(String userId) async {
     try {
       debugPrint('🔍 DEBUGGING USER STATE for: $userId');
@@ -478,14 +491,6 @@ class DatabaseService {
           .where('previousOwner', isEqualTo: userId)
           .get();
 
-      debugPrint('🃏 Coasters with previousOwner = $userId: ${previousCoastersSnapshot.docs.length}');
-      for (var doc in previousCoastersSnapshot.docs) {
-        final data = doc.data();
-        debugPrint('   Previous Coaster ${doc.id}:');
-        debugPrint('     previousOwner: ${data['previousOwner']}');
-        debugPrint('     claimedByUserId: ${data['claimedByUserId']}');
-        debugPrint('     isConsumed: ${data['isConsumed']}');
-      }
 
       userState['activeCoasters'] = coastersSnapshot.docs.length;
       userState['previousCoasters'] = previousCoastersSnapshot.docs.length;
@@ -497,25 +502,18 @@ class DatabaseService {
     }
   }
 
-  /// VERSIONE CORRETTA E DEFINITIVA per disassociare il coaster dell'host
   Future<void> completelyDisassociateHostCoaster(String userId) async {
     try {
-      debugPrint('🔄 Starting COMPLETE disassociation for user: $userId');
 
-      // 1. PRIMA pulisci i dati utente per essere sicuri
       await _db.collection('users').doc(userId).update({
         'currentRecipeId': null,
         'currentIngredientId': null,
       });
-      debugPrint('✅ User document cleaned');
 
-      // 2. TROVA TUTTI i coasters dell'utente (attivi e non consumati)
       final coastersSnapshot = await _db
           .collection('coasters')
           .where('claimedByUserId', isEqualTo: userId)
           .get();
-
-      debugPrint('🃏 Found ${coastersSnapshot.docs.length} coasters for user');
 
       if (coastersSnapshot.docs.isEmpty) {
         debugPrint('⚠️ No coasters found for user $userId');
@@ -527,9 +525,6 @@ class DatabaseService {
         final coasterId = coasterDoc.id;
         final coasterData = coasterDoc.data();
 
-        debugPrint('🔄 Processing coaster $coasterId');
-        debugPrint('   Current claimedByUserId: ${coasterData['claimedByUserId']}');
-        debugPrint('   Current isConsumed: ${coasterData['isConsumed']}');
 
         // DISASSOCIAZIONE COMPLETA E DEFINITIVA
         await _db.collection('coasters').doc(coasterId).update({
@@ -549,17 +544,533 @@ class DatabaseService {
           'originalIngredientId': coasterData['ingredientId'],
         });
 
-        debugPrint('✅ Coaster $coasterId completely disassociated and marked as consumed');
       }
-
-      debugPrint('🎉 COMPLETE disassociation finished for user $userId');
-
-      // 4. DEBUG FINALE - verifica che tutto sia pulito
-      await debugUserState(userId);
 
     } catch (e) {
       debugPrint('❌ CRITICAL ERROR in completelyDisassociateHostCoaster: $e');
       rethrow;
+    }
+  }
+
+  // METODI FACILITATORE DA AGGIUNGERE AL DatabaseService
+
+// =============================================================================
+// FACILITATOR METHODS
+// =============================================================================
+
+  /// Controlla se un utente è un facilitatore (automaticamente se è admin)
+  Future<bool> isFacilitator(String userId) async {
+    // Semplice: se sei admin, sei anche facilitatore
+    return await isUserAdmin(userId);
+  }
+
+  /// Ottieni tutte le stanze aperte che necessitano ingredienti
+  Future<List<Map<String, dynamic>>> getRoomsNeedingIngredients() async {
+    try {
+      debugPrint('🔍 Finding rooms needing ingredients...');
+
+      // Ottieni tutte le stanze non completate
+      final roomsSnapshot = await _db
+          .collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      List<Map<String, dynamic>> roomsNeedingHelp = [];
+
+      for (var roomDoc in roomsSnapshot.docs) {
+        final roomData = roomDoc.data();
+        final roomId = roomDoc.id;
+
+        // Controlla se la stanza ha bisogno di ingredienti
+        final participants = List<dynamic>.from(roomData['participants'] ?? []);
+        final maxParticipants = 3;
+
+        if (participants.length < maxParticipants) {
+          try {
+            // Ottieni informazioni sulla ricetta
+            final recipeId = roomData['recipeId'] as String;
+            final recipeDoc = await _db.collection('recipes').doc(recipeId).get();
+
+            if (recipeDoc.exists) {
+              final recipeData = recipeDoc.data() as Map<String, dynamic>;
+              final requiredIngredients = List<String>.from(recipeData['requiredIngredients'] ?? []);
+
+              // Calcola ingredienti mancanti
+              Set<String> presentIngredients = {};
+              for (var participant in participants) {
+                if (participant is Map<String, dynamic>) {
+                  final ingredientName = participant['ingredientName'] as String?;
+                  if (ingredientName != null && ingredientName.isNotEmpty) {
+                    presentIngredients.add(ingredientName);
+                  }
+                }
+              }
+
+              final missingIngredients = requiredIngredients
+                  .where((ingredient) => !presentIngredients.contains(ingredient))
+                  .toList();
+
+              if (missingIngredients.isNotEmpty) {
+                roomsNeedingHelp.add({
+                  'roomId': roomId,
+                  'roomData': roomData,
+                  'recipeData': recipeData,
+                  'participantsCount': participants.length,
+                  'missingIngredients': missingIngredients,
+                  'nextIngredientNeeded': missingIngredients.first, // Il primo che manca
+                  'presentIngredients': presentIngredients.toList(),
+                });
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️ Error processing room $roomId: $e');
+            // Continua con la prossima stanza
+          }
+        }
+      }
+
+      // Ordina per urgenza (stanze più piene prima)
+      roomsNeedingHelp.sort((a, b) =>
+          b['participantsCount'].compareTo(a['participantsCount']));
+
+      debugPrint('✅ Found ${roomsNeedingHelp.length} rooms needing ingredients');
+      return roomsNeedingHelp;
+
+    } catch (e) {
+      debugPrint('❌ Error getting rooms needing ingredients: $e');
+      return [];
+    }
+  }
+
+  /// Facilitatore completa automaticamente il primo ingrediente mancante in una stanza
+  Future<Map<String, dynamic>> facilitatorCompleteIngredient(String facilitatorId, String roomId) async {
+    try {
+      debugPrint('🤝 Facilitator $facilitatorId completing ingredient in room $roomId');
+
+      // 1. Verifica che sia un facilitatore
+      if (!await isFacilitator(facilitatorId)) {
+        return {
+          'success': false,
+          'error': 'Non hai i permessi di facilitatore',
+        };
+      }
+
+      // 2. Ottieni dati della stanza
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        return {
+          'success': false,
+          'error': 'Stanza non trovata',
+        };
+      }
+
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      final participants = List<dynamic>.from(roomData['participants'] ?? []);
+
+      if (participants.length >= 3) {
+        return {
+          'success': false,
+          'error': 'La stanza è già piena',
+        };
+      }
+
+      // 3. Verifica che il facilitatore non sia già nella stanza
+      final isAlreadyParticipant = participants.any((p) =>
+      p is Map<String, dynamic> && p['userId'] == facilitatorId);
+
+      if (isAlreadyParticipant) {
+        return {
+          'success': false,
+          'error': 'Sei già un partecipante di questa stanza',
+        };
+      }
+
+      // 4. Calcola quale ingrediente manca
+      final recipeId = roomData['recipeId'] as String;
+      final recipeDoc = await _db.collection('recipes').doc(recipeId).get();
+
+      if (!recipeDoc.exists) {
+        return {
+          'success': false,
+          'error': 'Ricetta non trovata',
+        };
+      }
+
+      final recipeData = recipeDoc.data() as Map<String, dynamic>;
+      final requiredIngredients = List<String>.from(recipeData['requiredIngredients'] ?? []);
+
+      // Trova ingredienti già presenti
+      Set<String> presentIngredients = {};
+      for (var participant in participants) {
+        if (participant is Map<String, dynamic>) {
+          final ingredientName = participant['ingredientName'] as String?;
+          if (ingredientName != null && ingredientName.isNotEmpty) {
+            presentIngredients.add(ingredientName);
+          }
+        }
+      }
+
+      // Trova il primo ingrediente mancante
+      final missingIngredients = requiredIngredients
+          .where((ingredient) => !presentIngredients.contains(ingredient))
+          .toList();
+
+      if (missingIngredients.isEmpty) {
+        return {
+          'success': false,
+          'error': 'Tutti gli ingredienti sono già presenti',
+        };
+      }
+
+      final ingredientToComplete = missingIngredients.first;
+
+      // 5. Trova l'ID dell'ingrediente
+      final ingredientsSnapshot = await _db
+          .collection('ingredients')
+          .where('name', isEqualTo: ingredientToComplete)
+          .limit(1)
+          .get();
+
+      if (ingredientsSnapshot.docs.isEmpty) {
+        return {
+          'success': false,
+          'error': 'Ingrediente "$ingredientToComplete" non trovato nel database',
+        };
+      }
+
+      final ingredientId = ingredientsSnapshot.docs.first.id;
+
+      // 6. Ottieni nome facilitatore
+      final facilitatorDoc = await _db.collection('users').doc(facilitatorId).get();
+      if (!facilitatorDoc.exists) {
+        return {
+          'success': false,
+          'error': 'Facilitatore non trovato',
+        };
+      }
+
+      final facilitatorData = facilitatorDoc.data() as Map<String, dynamic>;
+      final facilitatorName = facilitatorData['nickname'] ?? facilitatorData['email'] ?? 'Facilitatore';
+
+      // 7. Aggiungi il facilitatore come partecipante
+      final newParticipant = {
+        'userId': facilitatorId,
+        'ingredientId': ingredientId,
+        'userName': facilitatorName,
+        'ingredientName': ingredientToComplete,
+        'hasConfirmed': true,
+        'joinedAt': DateTime.now().millisecondsSinceEpoch,
+        'isFacilitator': true, // Flag speciale
+      };
+
+      await _db.collection('rooms').doc(roomId).update({
+        'participants': FieldValue.arrayUnion([newParticipant]),
+        'lastUpdated': FieldValue.serverTimestamp(),
+        'facilitatorHelped': true,
+      });
+
+      // 8. Log dell'azione facilitatore
+      try {
+        await _db.collection('facilitator_logs').add({
+          'facilitatorId': facilitatorId,
+          'facilitatorName': facilitatorName,
+          'action': 'completed_ingredient',
+          'roomId': roomId,
+          'ingredientCompleted': ingredientToComplete,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('⚠️ Error creating facilitator log: $e');
+        // Non critico, continua
+      }
+
+      debugPrint('✅ Facilitator completed ingredient: $ingredientToComplete');
+
+      return {
+        'success': true,
+        'ingredientCompleted': ingredientToComplete,
+        'roomId': roomId,
+        'participantsCount': participants.length + 1,
+        'message': 'Ingrediente "$ingredientToComplete" completato con successo!',
+      };
+
+    } catch (e) {
+      debugPrint('❌ Error in facilitator completion: $e');
+      return {
+        'success': false,
+        'error': 'Errore durante il completamento: $e',
+      };
+    }
+  }
+
+  /// Scanner QR per facilitatori - scansiona stanza e completa ingrediente
+  Future<Map<String, dynamic>> facilitatorScanAndComplete(String facilitatorId, String qrCode) async {
+    try {
+      debugPrint('📱 Facilitator scanning QR: $qrCode');
+
+      // 1. Verifica che sia un facilitatore
+      if (!await isFacilitator(facilitatorId)) {
+        return {
+          'success': false,
+          'error': 'Non hai i permessi di facilitatore',
+        };
+      }
+
+      // 2. Estrai room ID dal QR code
+      String roomId = qrCode.trim();
+
+      // Se il QR è un URL, estrai l'ID
+      if (qrCode.contains('/room/')) {
+        try {
+          final uri = Uri.parse(qrCode);
+          roomId = uri.pathSegments.last;
+        } catch (e) {
+          debugPrint('⚠️ Error parsing QR URL: $e');
+          // Continua con il QR originale
+        }
+      }
+
+      // Se il QR contiene altri pattern, puliscilo
+      if (roomId.contains('?')) {
+        roomId = roomId.split('?').first;
+      }
+
+      debugPrint('🎯 Extracted room ID: $roomId');
+
+      // 3. Verifica che la stanza esista
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        return {
+          'success': false,
+          'error': 'Stanza non trovata. Verifica il QR code.',
+        };
+      }
+
+      // 4. Completa automaticamente l'ingrediente
+      final result = await facilitatorCompleteIngredient(facilitatorId, roomId);
+
+      return result;
+
+    } catch (e) {
+      debugPrint('❌ Error in facilitator scan: $e');
+      return {
+        'success': false,
+        'error': 'Errore durante la scansione: $e',
+      };
+    }
+  }
+
+  /// Ottieni statistiche per facilitatori
+  Future<Map<String, dynamic>> getFacilitatorStats(String facilitatorId) async {
+    try {
+      // Statistiche dalle azioni del facilitatore
+      final logsSnapshot = await _db
+          .collection('facilitator_logs')
+          .where('facilitatorId', isEqualTo: facilitatorId)
+          .get();
+
+      int totalIngredientsCompleted = 0;
+      Map<String, int> ingredientCounts = {};
+
+      for (var log in logsSnapshot.docs) {
+        final data = log.data();
+        if (data['action'] == 'completed_ingredient') {
+          totalIngredientsCompleted++;
+          final ingredient = data['ingredientCompleted'] as String;
+          ingredientCounts[ingredient] = (ingredientCounts[ingredient] ?? 0) + 1;
+        }
+      }
+
+      // Stanze attualmente bisognose di aiuto
+      final roomsNeedingHelp = await getRoomsNeedingIngredients();
+
+      return {
+        'totalIngredientsCompleted': totalIngredientsCompleted,
+        'ingredientBreakdown': ingredientCounts,
+        'roomsCurrentlyNeedingHelp': roomsNeedingHelp.length,
+        'roomsNeedingHelp': roomsNeedingHelp.take(5).toList(), // Prime 5
+      };
+
+    } catch (e) {
+      debugPrint('❌ Error getting facilitator stats: $e');
+      return {};
+    }
+  }
+
+  /// Ottieni statistiche rapide per il pannello admin
+  Future<Map<String, dynamic>> getFacilitatorQuickStats() async {
+    try {
+      // Stanze attive
+      final activeRoomsSnapshot = await _db
+          .collection('rooms')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+
+      // Stanze bisognose
+      final roomsNeedingHelp = await getRoomsNeedingIngredients();
+
+      // Completamenti oggi
+      final today = DateTime.now();
+      final startOfDay = DateTime(today.year, today.month, today.day);
+      final completedTodaySnapshot = await _db
+          .collection('rooms')
+          .where('isCompleted', isEqualTo: true)
+          .where('completedAt', isGreaterThan: Timestamp.fromDate(startOfDay))
+          .get();
+
+      return {
+        'activeRooms': activeRoomsSnapshot.docs.length,
+        'roomsNeedingHelp': roomsNeedingHelp.length,
+        'completedToday': completedTodaySnapshot.docs.length,
+      };
+    } catch (e) {
+      debugPrint('❌ Error getting facilitator quick stats: $e');
+      return {
+        'activeRooms': 0,
+        'roomsNeedingHelp': 0,
+        'completedToday': 0,
+      };
+    }
+  }
+
+  /// Ottieni tutte le statistiche per il pannello admin
+  Future<Map<String, dynamic>> getOverallStats() async {
+    try {
+      // Utenti totali
+      final usersSnapshot = await _db.collection('users').get();
+
+      // Coasters attivi
+      final activeCoastersSnapshot = await _db
+          .collection('coasters')
+          .where('isActive', isEqualTo: true)
+          .where('claimedByUserId', isNotEqualTo: null)
+          .get();
+
+      // Completamenti totali
+      final completionsSnapshot = await _db.collection('completions').get();
+
+      // Stanze completate
+      final completedRoomsSnapshot = await _db
+          .collection('rooms')
+          .where('isCompleted', isEqualTo: true)
+          .get();
+
+      return {
+        'totalUsers': usersSnapshot.docs.length,
+        'activeCoasters': activeCoastersSnapshot.docs.length,
+        'completedPotions': completedRoomsSnapshot.docs.length,
+        'totalCompletions': completionsSnapshot.docs.length,
+      };
+    } catch (e) {
+      debugPrint('❌ Error getting overall stats: $e');
+      return {
+        'totalUsers': 0,
+        'activeCoasters': 0,
+        'completedPotions': 0,
+        'totalCompletions': 0,
+      };
+    }
+  }
+
+  /// Rimuovi un facilitatore da una stanza (se necessario)
+  Future<Map<String, dynamic>> removeFacilitatorFromRoom(String facilitatorId, String roomId) async {
+    try {
+      debugPrint('🗑️ Removing facilitator $facilitatorId from room $roomId');
+
+      // Verifica permessi
+      if (!await isFacilitator(facilitatorId)) {
+        return {
+          'success': false,
+          'error': 'Non hai i permessi di facilitatore',
+        };
+      }
+
+      // Ottieni dati stanza
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        return {
+          'success': false,
+          'error': 'Stanza non trovata',
+        };
+      }
+
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      List<dynamic> participants = List.from(roomData['participants'] ?? []);
+
+      // Trova e rimuovi il facilitatore
+      final initialLength = participants.length;
+      participants.removeWhere((participant) =>
+      participant is Map<String, dynamic> &&
+          participant['userId'] == facilitatorId &&
+          participant['isFacilitator'] == true);
+
+      if (participants.length == initialLength) {
+        return {
+          'success': false,
+          'error': 'Facilitatore non trovato nella stanza',
+        };
+      }
+
+      // Aggiorna la stanza
+      await _db.collection('rooms').doc(roomId).update({
+        'participants': participants,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+
+      // Log dell'azione
+      try {
+        await _db.collection('facilitator_logs').add({
+          'facilitatorId': facilitatorId,
+          'action': 'removed_from_room',
+          'roomId': roomId,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('⚠️ Error creating removal log: $e');
+      }
+
+      debugPrint('✅ Facilitator removed from room');
+
+      return {
+        'success': true,
+        'message': 'Facilitatore rimosso dalla stanza con successo',
+      };
+
+    } catch (e) {
+      debugPrint('❌ Error removing facilitator from room: $e');
+      return {
+        'success': false,
+        'error': 'Errore durante la rimozione: $e',
+      };
+    }
+  }
+
+  /// Ottieni cronologia delle azioni facilitatore
+  Future<List<Map<String, dynamic>>> getFacilitatorHistory(String facilitatorId, {int limit = 20}) async {
+    try {
+      final logsSnapshot = await _db
+          .collection('facilitator_logs')
+          .where('facilitatorId', isEqualTo: facilitatorId)
+          .orderBy('timestamp', descending: true)
+          .limit(limit)
+          .get();
+
+      return logsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'action': data['action'],
+          'roomId': data['roomId'],
+          'ingredientCompleted': data['ingredientCompleted'],
+          'timestamp': data['timestamp'],
+          ...data,
+        };
+      }).toList();
+
+    } catch (e) {
+      debugPrint('❌ Error getting facilitator history: $e');
+      return [];
     }
   }
 
@@ -585,7 +1096,6 @@ class DatabaseService {
       });
       debugPrint('✅ Room marked as completed');
 
-      // 3. Assegna punti (con gestione errori)
       try {
         await updatePoints(room.hostId, 12);
         debugPrint('✅ Points assigned to host');
@@ -598,10 +1108,8 @@ class DatabaseService {
         debugPrint('⚠️ Error assigning points: $e');
       }
 
-      // 4. DISASSOCIAZIONE COMPLETA DEL COASTER DELL'HOST
-      debugPrint('🔄 Starting host coaster disassociation...');
       await completelyDisassociateHostCoaster(room.hostId);
-      debugPrint('✅ Host coaster completely disassociated');
+
 
       // 5. Registra completamento per storico
       try {
@@ -623,7 +1131,265 @@ class DatabaseService {
     }
   }
 
-  /// UTILITY: Verifica se un utente dovrebbe vedere coasters nella home
+  /// VERSIONE MINIMALE che fa solo l'essenziale
+  Future<void> completeRoomMinimal(String roomId, String currentUserId) async {
+    try {
+      print('🚀 MINIMAL room completion');
+      print('Room: $roomId, User: $currentUserId');
+
+      // 1. Ottieni dati stanza
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) {
+        throw Exception('Stanza non trovata');
+      }
+
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      final hostId = roomData['hostId'] as String;
+      final isCurrentUserHost = (currentUserId == hostId);
+
+      print('Host: $hostId');
+      print('Is current user host: $isCurrentUserHost');
+
+      // 2. Segna stanza come completata
+      await _db.collection('rooms').doc(roomId).update({
+        'isCompleted': true,
+        'completedAt': FieldValue.serverTimestamp(),
+        'completedBy': currentUserId,
+      });
+      print('✅ Room marked as completed');
+
+      // 3. SOLO punti e pulizia - NIENTE assegnazione automatica
+      if (isCurrentUserHost) {
+        print('🎭 Processing as HOST');
+
+        // Punti host (12)
+        await _db.collection('users').doc(currentUserId).update({
+          'points': FieldValue.increment(12),
+        });
+        print('✅ Host points added (12)');
+
+        // Disassocia coaster e pulisci slot
+        await cleanHostAfterCompletion(currentUserId);
+        print('✅ Host cleaned after completion');
+
+      } else {
+        print('👤 Processing as PARTICIPANT');
+
+        // Punti partecipante (3)
+        await _db.collection('users').doc(currentUserId).update({
+          'points': FieldValue.increment(3),
+        });
+        print('✅ Participant points added (3)');
+
+        // Pulisci solo gli slot utente
+        await _db.collection('users').doc(currentUserId).update({
+          'currentRecipeId': null,
+          'currentIngredientId': null,
+        });
+        print('✅ Participant slots cleared');
+      }
+
+      // 4. Completion record (solo se host)
+      if (isCurrentUserHost) {
+        try {
+          await createCompletionRecordSimple(roomId, roomData);
+          print('✅ Completion record created');
+        } catch (e) {
+          print('⚠️ Error creating completion record: $e');
+          // Non critico, continua
+        }
+      }
+
+      print('🎉 MINIMAL completion finished successfully');
+
+    } catch (e) {
+      print('❌ Error in minimal completion: $e');
+      rethrow;
+    }
+  }
+
+  /// Pulisce l'host dopo il completamento - SENZA assegnazione automatica
+  Future<void> cleanHostAfterCompletion(String hostId) async {
+    try {
+      print('🧹 Cleaning host after completion: $hostId');
+
+      // 1. Pulisci documento utente
+      await _db.collection('users').doc(hostId).update({
+        'currentRecipeId': null,
+        'currentIngredientId': null,
+      });
+      print('✅ Host user document cleaned');
+
+      // 2. Disassocia tutti i coasters dell'host
+      final coastersSnapshot = await _db
+          .collection('coasters')
+          .where('claimedByUserId', isEqualTo: hostId)
+          .get();
+
+      print('Found ${coastersSnapshot.docs.length} coasters to disassociate');
+
+      for (var coasterDoc in coastersSnapshot.docs) {
+        try {
+          await _db.collection('coasters').doc(coasterDoc.id).update({
+            'claimedByUserId': null,
+            'usedAs': null,
+            'isConsumed': true,
+            'previousOwner': hostId,
+            'consumedAt': FieldValue.serverTimestamp(),
+            'completedAsPotion': true,
+          });
+          print('✅ Coaster ${coasterDoc.id} disassociated');
+        } catch (e) {
+          print('⚠️ Error disassociating coaster ${coasterDoc.id}: $e');
+          // Continua con il prossimo
+        }
+      }
+
+      print('🎉 Host cleaning completed');
+
+      // NOTA: NON assegnamo automaticamente nuovi elementi
+      // L'host dovrà scansionare un nuovo QR manualmente
+
+    } catch (e) {
+      print('❌ Error cleaning host: $e');
+      throw e;
+    }
+  }
+
+  /// Creazione completion record semplificata
+  Future<void> createCompletionRecordSimple(String roomId, Map<String, dynamic> roomData) async {
+    try {
+      final participants = List<dynamic>.from(roomData['participants'] ?? []);
+      final participantIds = participants
+          .where((p) => p is Map<String, dynamic>)
+          .map((p) => (p as Map<String, dynamic>)['userId'] as String)
+          .toList();
+
+      await _db.collection('completions').add({
+        'roomId': roomId,
+        'hostId': roomData['hostId'],
+        'recipeId': roomData['recipeId'],
+        'participantIds': participantIds,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ Error creating completion record: $e');
+      // Non rilanciare - non è critico
+    }
+  }
+
+  /// VERSIONE ULTRA-SEMPLICE per test immediato
+  Future<void> completeRoomUltraSimple(String roomId, String currentUserId) async {
+    try {
+      print('⚡ ULTRA-SIMPLE completion');
+
+      // 1. Segna stanza completata
+      await _db.collection('rooms').doc(roomId).update({
+        'isCompleted': true,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ Room completed');
+
+      // 2. Determina se sei host
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>;
+      final isHost = (roomData['hostId'] == currentUserId);
+
+      print('Is host: $isHost');
+
+      // 3. Aggiorna SOLO te stesso
+      if (isHost) {
+        // Host: 12 punti + pulisci tutto
+        await _db.collection('users').doc(currentUserId).update({
+          'points': FieldValue.increment(12),
+          'currentRecipeId': null,
+          'currentIngredientId': null,
+        });
+
+        // Disassocia coaster
+        final coastersSnapshot = await _db
+            .collection('coasters')
+            .where('claimedByUserId', isEqualTo: currentUserId)
+            .get();
+
+        for (var doc in coastersSnapshot.docs) {
+          await _db.collection('coasters').doc(doc.id).update({
+            'claimedByUserId': null,
+            'isConsumed': true,
+            'previousOwner': currentUserId,
+          });
+        }
+
+        print('✅ Host processed');
+      } else {
+        // Partecipante: 3 punti + pulisci slot
+        await _db.collection('users').doc(currentUserId).update({
+          'points': FieldValue.increment(3),
+          'currentRecipeId': null,
+          'currentIngredientId': null,
+        });
+
+        print('✅ Participant processed');
+      }
+
+      print('🎉 ULTRA-SIMPLE completion done');
+
+    } catch (e) {
+      print('❌ ULTRA-SIMPLE completion error: $e');
+      rethrow;
+    }
+  }
+
+  /// Metodo per assegnare manualmente un nuovo elemento (da chiamare dopo)
+  Future<void> manuallyAssignNewElement(String userId) async {
+    try {
+      print('🎲 Manually assigning new element to: $userId');
+
+      // Verifica che l'utente esista
+      final userDoc = await _db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        print('❌ User not found');
+        return;
+      }
+
+      // Assegna elemento casuale
+      final Random random = Random();
+      final bool assignRecipe = random.nextBool();
+
+      if (assignRecipe) {
+        // Assegna ricetta casuale
+        final recipesSnapshot = await _db.collection('recipes').limit(20).get();
+        if (recipesSnapshot.docs.isNotEmpty) {
+          final randomIndex = random.nextInt(recipesSnapshot.docs.length);
+          final recipeId = recipesSnapshot.docs[randomIndex].id;
+
+          await _db.collection('users').doc(userId).update({
+            'currentRecipeId': recipeId,
+            'currentIngredientId': null,
+          });
+          print('✅ Random recipe assigned');
+        }
+      } else {
+        // Assegna ingrediente casuale
+        final ingredientsSnapshot = await _db.collection('ingredients').limit(20).get();
+        if (ingredientsSnapshot.docs.isNotEmpty) {
+          final randomIndex = random.nextInt(ingredientsSnapshot.docs.length);
+          final ingredientId = ingredientsSnapshot.docs[randomIndex].id;
+
+          await _db.collection('users').doc(userId).update({
+            'currentRecipeId': null,
+            'currentIngredientId': ingredientId,
+          });
+          print('✅ Random ingredient assigned');
+        }
+      }
+
+    } catch (e) {
+      print('❌ Error manually assigning element: $e');
+      rethrow;
+    }
+  }
+
   Future<bool> shouldUserSeeCoaster(String userId) async {
     try {
       // 1. Controlla documento utente
@@ -648,7 +1414,6 @@ class DatabaseService {
       debugPrint('   hasIngredient: $hasIngredient');
       debugPrint('   hasActiveCoaster: $hasActiveCoaster');
 
-      // L'utente dovrebbe vedere un coaster solo se ha elementi E un coaster attivo
       return (hasRecipe || hasIngredient) && hasActiveCoaster;
     } catch (e) {
       debugPrint('❌ Error checking if user should see coaster: $e');
@@ -656,7 +1421,6 @@ class DatabaseService {
     }
   }
 
-  /// NUOVO: Verifica se un utente può ottenere un nuovo coaster (controllo completo)
   Future<bool> canUserGetNewCoaster(String userId) async {
     try {
       // 1. Verifica che l'utente non abbia già un coaster attivo
@@ -775,7 +1539,9 @@ class DatabaseService {
         if (data['isConsumed'] == true) consumedCoasters++;
         if (data['isActive'] == true &&
             data['claimedByUserId'] == null &&
-            data['isConsumed'] != true) availableCoasters++;
+            data['isConsumed'] != true) {
+          availableCoasters++;
+        }
 
         // Controlla orphaned (con previousOwner ma utente non esiste)
         if (data['previousOwner'] != null) {
@@ -1962,11 +2728,7 @@ class DatabaseService {
     });
   }
 
-  // =============================================================================
-  // METODI ESISTENTI - MANTENUTI INALTERATI
-  // =============================================================================
 
-  /// Aggiorna il punteggio di un utente
   Future<void> updatePoints(String uid, int additionalPoints) async {
     try {
       await _db.collection('users').doc(uid).update({
@@ -2204,30 +2966,66 @@ class DatabaseService {
   }
 
   /// Reclama un coaster e lo assegna come elemento casuale
+  /// Reclama un sottobicchiere con controlli di validazione
   Future<bool> claimCoaster(String coasterId, String userId) async {
     try {
-      DocumentSnapshot doc =
-          await _db.collection('coasters').doc(coasterId).get();
-      if (!doc.exists) return false;
+      debugPrint('🔍 Attempting to claim coaster: $coasterId for user: $userId');
 
-      CoasterModel coaster =
-          CoasterModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      if (!coaster.isActive || coaster.claimedByUserId != null) {
-        return false; // Già reclamato o disattivato
+      // CONTROLLO 1: Verifica che il sottobicchiere esista
+      DocumentSnapshot coasterDoc = await _db.collection('coasters').doc(coasterId).get();
+      if (!coasterDoc.exists) {
+        debugPrint('❌ Coaster $coasterId not found');
+        return false;
       }
 
-      // Reclama il coaster
+      final coasterData = coasterDoc.data() as Map<String, dynamic>;
+
+      // CONTROLLO 2: Verifica che il sottobicchiere non sia consumato
+      if (coasterData['isConsumed'] == true) {
+        debugPrint('❌ Coaster $coasterId is already consumed');
+        return false;
+      }
+
+      // CONTROLLO 3: Verifica che non sia già reclamato da un altro utente
+      final String? currentClaimant = coasterData['claimedByUserId'];
+      if (currentClaimant != null && currentClaimant != userId) {
+        debugPrint('❌ Coaster $coasterId is already claimed by user: $currentClaimant');
+        return false;
+      }
+
+      // CONTROLLO 4: Verifica che l'utente non abbia già un sottobicchiere attivo
+      final userCoaster = await getUserCoaster(userId);
+      if (userCoaster != null && !userCoaster.isConsumed && userCoaster.id != coasterId) {
+        debugPrint('❌ User $userId already has an active coaster: ${userCoaster.id}');
+        return false;
+      }
+
+      // CONTROLLO 5: Se l'utente ha già reclamato questo sottobicchiere, non fare nulla ma restituisci successo
+      if (currentClaimant == userId) {
+        debugPrint('✅ User $userId already owns coaster $coasterId');
+        return true;
+      }
+
+      // CONTROLLO 6: Verifica che il sottobicchiere sia attivo
+      if (coasterData['isActive'] != true) {
+        debugPrint('❌ Coaster $coasterId is not active');
+        return false;
+      }
+
+      // Esegui il claim
       await _db.collection('coasters').doc(coasterId).update({
         'claimedByUserId': userId,
+        'claimedAt': FieldValue.serverTimestamp(),
       });
+
+      debugPrint('✅ Coaster $coasterId successfully claimed by user $userId');
 
       // NON assegnare automaticamente un elemento - l'utente sceglierà
       // nella schermata di selezione
 
       return true;
     } catch (e) {
-      debugPrint('Error claiming coaster: $e');
+      debugPrint('❌ Error claiming coaster: $e');
       return false;
     }
   }

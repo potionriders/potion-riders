@@ -328,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.admin_panel_settings),
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const AdminScreen()),
+                  MaterialPageRoute(builder: (_) => AdminScreen()),
                 ),
                 tooltip: 'Amministrazione',
               );
@@ -348,7 +348,12 @@ class _HomeScreenState extends State<HomeScreen> {
         // Logout
         IconButton(
           icon: const Icon(Icons.logout),
-          onPressed: () async => await authService.logout(),
+          onPressed: () async {
+            await authService.logout();
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
+          },
           tooltip: 'Logout',
         ),
       ],
@@ -526,26 +531,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       MaterialPageRoute(builder: (_) => const JoinRoomScreen()),
                     ),
                   )
-                else if (isAdmin)
-                    _buildActionCard(
-                      context,
-                      icon: Icons.admin_panel_settings,
-                      title: 'Admin',
-                      subtitle: 'Pannello amministratore',
-                      color: Colors.red,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AdminScreen()),
-                      ),
-                    )
-                  else
+                else
                     _buildActionCard(
                       context,
                       icon: Icons.help_outline,
-                      title: 'Tutorial',
-                      subtitle: 'Come giocare',
+                      title: 'Reclama un sottobicchiere',
+                      subtitle: 'Per sbloccare',
                       color: Colors.amber,
-                      onTap: () => _showTutorialDialog(context),
+                      onTap: () {},
                     ),
               ],
             );
@@ -628,10 +621,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildTutorialStep('1', 'Ottieni un sottobicchiere scansionando o inserendo l\'ID'),
-          _buildTutorialStep('2', 'Scegli se usarlo come pozione o ingrediente (puoi cambiare!)'),
-          _buildTutorialStep('3', 'Collabora con altri per completare le pozioni'),
-          _buildTutorialStep('4', 'Guadagna punti e scala la classifica!'),
+          _buildTutorialStep('1', 'Attiva il tuo sottobicchiere scansionando il QR'),
+          _buildTutorialStep('2', 'Puoi giocare come pozione e come ingrediente. Puoi cliccare sul tuo elemento per capovolgere il sottobicchiere'),
+          _buildTutorialStep('3', 'Come pozione: crea una stanza di matching: riceverai un QR da far scansionare ai giocatori ingrediente che ti servono'),
+          _buildTutorialStep('4', 'Come ingrediente: unisciti a una stanza scansionando il QR di un giocatore pozione che ha bisogno di te'),
+          _buildTutorialStep('5', 'Completata la pozione? Il giocatore pozione ottiene 12 punti, ogni ingrediente 3'),
+          _buildTutorialStep('6', 'Solo il sottobicchiere del giocatore pozione verrà consumato: potrà prenderne uno nuovo gratuitamente al checkpoint per continuare a giocare'),
+          _buildTutorialStep('7', 'Per qualsiasi aiuto cerca chi indossa un grande cappello da mago...'),
+          _buildTutorialStep('8', 'Accumula punti, scala la classifica, reclama i tuoi premi !')
         ],
       ),
     );

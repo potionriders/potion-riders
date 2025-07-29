@@ -5,7 +5,6 @@ import 'package:potion_riders/screens/scan_item_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:potion_riders/services/auth_service.dart';
 import 'package:potion_riders/services/room_service.dart';
-import 'package:potion_riders/screens/auth/login_screen.dart';
 import 'package:potion_riders/screens/auth/complete_profile_screen.dart';
 import 'package:potion_riders/screens/home_screen.dart';
 
@@ -49,7 +48,7 @@ class PotionRidersApp extends StatelessWidget {
           '/complete-profile': (context) => const CompleteProfileScreen(),
           '/home': (context) => const HomeScreen(),
           '/scan': (context) => const ScanItemScreen(),
-          '/admin': (context) => const AdminScreen(),
+          '/admin': (context) => AdminScreen(),
         },
       ),
     );

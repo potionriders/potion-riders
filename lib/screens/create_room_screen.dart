@@ -31,14 +31,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       appBar: AppBar(
         title: const Text('Crea Stanza'),
         elevation: 0,
-        actions: [
-          // PULSANTE DEBUG TEMPORANEO
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () => _showDebugOptions(uid!, dbService),
-            tooltip: 'Debug Options',
-          ),
-        ],
       ),
       body: StreamBuilder<RecipeModel?>(
         stream: dbService.getRecipe(widget.recipeId).asStream(),
@@ -161,45 +153,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                           ),
                           const SizedBox(height: 16),
                         ],
-
-                        // Ingredienti richiesti
-                        const Text(
-                          'Ingredienti richiesti:',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...recipe.requiredIngredients.map((ingredientId) =>
-                            FutureBuilder<String>(
-                              future: dbService.getIngredientNameById(ingredientId),
-                              builder: (context, ingredientSnapshot) {
-                                final ingredientName = ingredientSnapshot.data ?? 'Caricamento...';
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.fiber_manual_record,
-                                        size: 8,
-                                        color: Colors.purple[400],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        ingredientName,
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                        ).toList(),
                       ],
                     ),
                   ),
@@ -287,22 +240,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                           ],
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Pulsante debug
-                    ElevatedButton(
-                      onPressed: _isCreating || uid == null
-                          ? null
-                          : () => _createRoom(context, uid, recipe, roomService, dbService, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange[600],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Icon(Icons.bug_report),
                     ),
                   ],
                 ),

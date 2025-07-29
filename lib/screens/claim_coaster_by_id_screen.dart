@@ -179,7 +179,7 @@ class _ClaimCoasterByIdScreenState extends State<ClaimCoasterByIdScreen> {
     });
 
     try {
-      final coasterId = _idController.text.trim().toUpperCase(); // Convertiamo in maiuscolo per uniformità
+      final coasterId = _idController.text.trim().toUpperCase();
 
       // Verifica se il sottobicchiere esiste
       final coaster = await _dbService.getCoaster(coasterId);
@@ -192,7 +192,16 @@ class _ClaimCoasterByIdScreenState extends State<ClaimCoasterByIdScreen> {
         return;
       }
 
-      // Verifica se è già stato reclamato
+      // NUOVO CONTROLLO 1: Verifica se il sottobicchiere è consumato
+      if (coaster.isConsumed == true) {
+        setState(() {
+          _errorMessage = 'Questo sottobicchiere è già stato consumato in una pozione completata.';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // NUOVO CONTROLLO 2: Verifica se è già stato reclamato da un altro utente
       if (coaster.claimedByUserId != null && coaster.claimedByUserId != uid) {
         setState(() {
           _errorMessage = 'Questo sottobicchiere è già stato reclamato da un altro giocatore.';
@@ -214,6 +223,17 @@ class _ClaimCoasterByIdScreenState extends State<ClaimCoasterByIdScreen> {
             ),
           ),
         );
+        return;
+      }
+
+      // NUOVO CONTROLLO 3: Verifica se l'utente ha già un sottobicchiere attivo
+      final userCoaster = await _dbService.getUserCoaster(uid);
+
+      if (userCoaster != null && !userCoaster.isConsumed) {
+        setState(() {
+          _errorMessage = 'Hai già un sottobicchiere attivo. Completa prima la tua pozione o riconsegnalo per ottenerne uno nuovo.';
+          _isLoading = false;
+        });
         return;
       }
 

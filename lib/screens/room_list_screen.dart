@@ -49,8 +49,7 @@ class _RoomListScreenState extends State<RoomListScreen> with TickerProviderStat
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.home), text: 'Le Mie Stanze'),
-            Tab(icon: Icon(Icons.search), text: 'Stanze Aperte'),
-            Tab(icon: Icon(Icons.history), text: 'Completate'), // NUOVO
+            Tab(icon: Icon(Icons.history), text: 'Completate'),
           ],
         ),
       ),
@@ -58,8 +57,7 @@ class _RoomListScreenState extends State<RoomListScreen> with TickerProviderStat
         controller: _tabController,
         children: [
           _buildMyRoomsTab(uid),
-          _buildOpenRoomsTab(uid),
-          _buildCompletedRoomsTab(uid), // NUOVO
+          _buildCompletedRoomsTab(uid),
         ],
       ),
     );

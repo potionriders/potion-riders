@@ -44,7 +44,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
   bool _isProcessing = false;
   bool _hasPermission = false;
   String? _lastError;
-  List<dynamic> _captureHistory = []; // Usa dynamic per supportare entrambi i tipi
+  final List<dynamic> _captureHistory = []; // Usa dynamic per supportare entrambi i tipi
 
   // Controller per mobile scanner
   MobileScannerController? _mobileScannerController;
@@ -238,7 +238,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.blue, width: 3),
-                boxShadow: [
+                boxShadow: const [
                   BoxShadow(
                     color: Colors.black26,
                     blurRadius: 8,
@@ -335,7 +335,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.green, width: 3),
-                boxShadow: [
+                boxShadow: const [
                   BoxShadow(
                     color: Colors.black26,
                     blurRadius: 8,
@@ -438,8 +438,8 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
   void _handleWebQRDetection(QRCodeCapture capture) {
     if (_isProcessing) return;
 
-    final String? code = capture.raw;
-    if (code == null || code.isEmpty) return;
+    final String code = capture.raw;
+    if (code.isEmpty) return;
 
     print('🎉 DEBUG: QR rilevato con qrcode_reader_web: $code');
     print('DEBUG: Capture data: ${capture.toString()}');
@@ -527,10 +527,10 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.info, color: kIsWeb ? Colors.blue : Colors.green),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Text('Scanner QR ${kIsWeb ? "Web" : "Mobile"}'),
           ],
         ),
@@ -538,7 +538,7 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Scanner ottimizzato per ${kIsWeb ? "applicazioni web utilizzando qrcode_reader_web" : "dispositivi mobile utilizzando mobile_scanner"}.'),
+            const Text('Scanner ottimizzato per ${kIsWeb ? "applicazioni web utilizzando qrcode_reader_web" : "dispositivi mobile utilizzando mobile_scanner"}.'),
             const SizedBox(height: 12),
             const Text('Caratteristiche:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -559,9 +559,9 @@ class _QRScannerWidgetState extends State<QRScannerWidget> {
               style: const TextStyle(fontStyle: FontStyle.italic),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Piattaforma: ${kIsWeb ? "Web Browser" : "Mobile App"}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),

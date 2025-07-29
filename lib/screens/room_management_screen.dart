@@ -563,12 +563,7 @@ class _RoomManagementScreenState extends State<RoomManagementScreen>
               children: [
                 Row(
                   children: [
-                    Text(
-                      'ID: ${participant.userId.substring(0, 6)}...',
-                      style: TextStyle(
-                        fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
+                    Text('${participant.userName ?? "Utente Sconosciuto"} - ${participant.ingredientName ?? "Ingrediente Sconosciuto"}'),
                     if (isCurrentUser)
                       const Text(
                         ' (Tu)',
@@ -731,7 +726,9 @@ class _RoomManagementScreenState extends State<RoomManagementScreen>
     });
 
     try {
-      await _dbService.completeRoom(room.id);
+      final authService = Provider.of<AuthService>(context);
+      final uid = authService.currentUser?.uid;
+      await _dbService.completeRoomUltraSimple(room.id, uid ?? "");
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
